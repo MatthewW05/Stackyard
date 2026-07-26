@@ -37,7 +37,7 @@ npm run compile  # TypeScript check, no emit
 Loading the unpacked build:
 
 - **Chrome:** `chrome://extensions` → enable Developer Mode → "Load unpacked" → select `.output/chrome-mv3`
-- **Firefox:** `about:debugging#/runtime/this-firefox` → "Load Temporary Add-on" → select any file inside `.output/firefox-mv2`
+- **Firefox:** `about:debugging#/runtime/this-firefox` → "Load Temporary Add-on" → select `.output/firefox-mv2/manifest.json`
 
 ## Roadmap
 
