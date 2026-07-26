@@ -4,3 +4,7 @@ node_modules
 
 # Planning doc with hand-formatted tables; not source code
 github-preview-extension-roadmap.md
+
+# Personal/local files, not shared project source
+CLAUDE.md
+.claude
