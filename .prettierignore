@@ -1,0 +1,6 @@
+node_modules
+.output
+.wxt
+
+# Planning doc with hand-formatted tables; not source code
+github-preview-extension-roadmap.md
