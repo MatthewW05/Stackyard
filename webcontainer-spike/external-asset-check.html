@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>WebContainer External Asset Check</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 2rem;
+        max-width: 40rem;
+      }
+      #log {
+        white-space: pre-wrap;
+        background: #111;
+        color: #0f0;
+        padding: 1rem;
+        border-radius: 4px;
+        font-family: ui-monospace, monospace;
+        font-size: 0.85rem;
+      }
+      iframe {
+        width: 100%;
+        height: 220px;
+        margin-top: 1rem;
+        border: 1px solid #ccc;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>WebContainer External Asset Check</h1>
+    <p>
+      Same as the hello-world spike, but the mounted page loads a real cross-origin image
+      (avatars.githubusercontent.com). Tests whether Firefox's documented "third-party assets
+      blocked in preview iframe" limitation actually bites for realistic repo content.
+    </p>
+    <pre id="log">starting…</pre>
+    <iframe id="preview" title="WebContainer preview"></iframe>
+    <script type="module" src="./external-asset-check.js"></script>
+  </body>
+</html>
