@@ -26,7 +26,7 @@ Throwaway proof-of-concept for `spike/webcontainer-hello-world`. Not merged as-i
   - This becomes a real risk in Phase 1/2 once we're previewing arbitrary real repos: a Vite/React dev server pulling in fonts, images, or other cross-origin requests could hit this Firefox limitation. Worth explicitly testing a repo with external assets early in `feature/webcontainer-page`, and having "open preview in a new tab" as a fallback ready rather than assuming the iframe always works.
 - **COEP `credentialless` vs `require-corp`**: `credentialless` is the more forgiving mode (doesn't require every embedded resource to opt in via CORP headers), but it's Chromium-only — Firefox has no timeline for it and Safari has said they won't implement it. `require-corp` (what we used) is the only option that works across all three, so that's the right default for this project's stated Chrome + Firefox scope.
 
-## Open question for `feature/webcontainer-page`: headers inside a real extension, not a dev server
+## Confirmed: packaged extension pages cannot be cross-origin isolated in Firefox
 
 This spike gets its headers from Vite's dev server config — that mechanism won't exist once this is a packaged extension page (no server sitting in front of a built extension). The real mechanism differs by browser, and it's not symmetric:
 
@@ -35,7 +35,35 @@ This spike gets its headers from Vite's dev server config — that mechanism won
   "cross_origin_embedder_policy": { "value": "require-corp" },
   "cross_origin_opener_policy": { "value": "same-origin" }
   ```
-- **Firefox**: these two manifest keys do **not** appear in MDN's WebExtensions `manifest.json` key reference at all — they look Chrome-specific. It's not yet clear how (or whether) a `moz-extension://` page becomes cross-origin isolated in Firefox. This is an **open risk**, not a confirmed blocker — needs dedicated investigation as the first task of `feature/webcontainer-page`, before assuming Firefox parity for the preview page itself (separate from Firefox's general WebContainers alpha-support caveat above).
+- **Firefox: confirmed unsupported, not just undocumented.** Loading an extension with these keys produces two explicit warnings: `Reading manifest: Warning processing cross_origin_embedder_policy: An unexpected property was found in the WebExtension manifest.` (and the same for `cross_origin_opener_policy`). Firefox doesn't silently ignore them — it rejects them as unrecognized. Result: `crossOriginIsolated: false`, `SharedArrayBuffer` unavailable, inside any `moz-extension://` page. There is no manifest-level workaround; this is a firm platform limitation, not a documentation gap.
+
+### Why "open it in a full tab instead of a popup" doesn't fix it on its own
+
+Tempting fix: instead of booting the WebContainer in the extension's popup, open a full browser tab (still an extension page) with an iframe pointed at the WebContainer's internal preview URL. **This does not work in Firefox.** Cross-origin isolation is a property of the _entire document chain_ — every ancestor frame up to the top-level document must be isolated for a nested iframe to be isolated. If the top-level document is an unisolated `moz-extension://...` page (which it necessarily is in Firefox, per above), everything nested inside it — including an iframe pointing at a perfectly well-configured external page — inherits that lack of isolation. The popup-vs-tab distinction is irrelevant; what matters is the origin scheme of the _top-level_ document.
+
+### The actual fix: real top-level navigation to a page you host
+
+A real HTTP(S) server can set whatever headers it wants, in every browser — that's exactly what this spike's own `vite.config.js` has been demonstrating the whole time. So `feature/webcontainer-page` should be:
+
+1. The extension injects its "Preview" button/UI on the GitHub repo page (`feature/content-script-button`, unaffected by any of this).
+2. On click: `browser.tabs.create({ url: 'https://<your-hosted-domain>/preview?owner=X&repo=Y' })` — a genuine top-level navigation to a page **you host** (GitHub Pages, Vercel, Netlify, anything with header control), not to an extension-owned page.
+3. That hosted page is functionally what already exists in this spike folder: check `crossOriginIsolated`, `WebContainer.boot()`, mount, spawn, and its own internal `<iframe>` for the running dev server — all of which is safe to nest, because now the _top-level_ document is the one that's properly isolated.
+
+This changes the shape of `feature/webcontainer-page` from "a page bundled into the extension" to "the extension links out to a page you host separately" — worth deciding as the first task of that branch, not discovering mid-build.
+
+## Follow-up experiments — results
+
+### Test A — does a packaged extension page actually get cross-origin isolated? (`extension-check/`)
+
+- [x] Chrome: `crossOriginIsolated: true`, `SharedArrayBuffer available: true`
+- [x] Firefox: `crossOriginIsolated: false`, `SharedArrayBuffer available: false`, plus the two "unexpected property" manifest warnings above. **Confirmed blocker for the packaged-page approach; resolved by the hosted-page architecture above.**
+
+### Test B — does Firefox's iframe actually block a real cross-origin asset? (`external-asset-check.html`)
+
+- [x] Chrome: image renders in the iframe.
+- [x] Firefox: image renders in the iframe too — StackBlitz's documented "third-party assets blocked" issue did **not** reproduce for a plain cross-origin `<img>`.
+
+Caveat: this is one image from `avatars.githubusercontent.com`, which likely sends permissive CORP/CORS headers already. Real Vite/React dev servers pull in heavier stuff — `@font-face` assets, HMR websocket connections, dynamically-imported chunks — that weren't tested here. Treat this as "no evidence of a problem at the simple end," not "confirmed non-issue for all real repos." Worth revisiting with an actual framework's dev-server output once `feature/webcontainer-page` exists for real (and once it's a hosted page rather than an extension page, per the fix above — that's the config it'll actually run under).
 
 ## Licensing — flag for later, not blocking now
 
