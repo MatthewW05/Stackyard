@@ -1,4 +1,6 @@
 import { parseGitHubRepo } from '@/utils/github';
+import { OPEN_PREVIEW_MESSAGE, type OpenPreviewMessage } from '@/utils/messages';
+import { buildPreviewUrl } from '@/utils/preview-url';
 
 // GitHub renders two different headers for the same repo page depending on
 // sign-in state: a legacy server-rendered one (logged out) and a Primer
@@ -27,6 +29,14 @@ export default defineContentScript({
         button.setAttribute('aria-label', 'Open a live preview of this repository');
         button.innerHTML =
           '<svg class="octicon" viewBox="0 0 16 16" width="16" height="16" style="margin-right: 4px;"><path d="M4 2l10 6-10 6V2z"></path></svg>Preview';
+        button.addEventListener('click', () => {
+          const repo = parseGitHubRepo(location.href);
+          if (!repo) return;
+          // Content scripts don't have access to browser.tabs (privileged
+          // API, background-only), so ask the background script to open it.
+          const message: OpenPreviewMessage = { type: OPEN_PREVIEW_MESSAGE, url: buildPreviewUrl(repo) };
+          browser.runtime.sendMessage(message);
+        });
         wrapper.append(button);
         return button;
       },
