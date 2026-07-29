@@ -34,7 +34,10 @@ export default defineContentScript({
           if (!repo) return;
           // Content scripts don't have access to browser.tabs (privileged
           // API, background-only), so ask the background script to open it.
-          const message: OpenPreviewMessage = { type: OPEN_PREVIEW_MESSAGE, url: buildPreviewUrl(repo) };
+          const message: OpenPreviewMessage = {
+            type: OPEN_PREVIEW_MESSAGE,
+            url: buildPreviewUrl(repo),
+          };
           browser.runtime.sendMessage(message);
         });
         wrapper.append(button);
