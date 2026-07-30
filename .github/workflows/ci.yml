@@ -28,5 +28,7 @@ jobs:
 
       - run: npm ci
         working-directory: preview-page
+      - run: npm run test
+        working-directory: preview-page
       - run: npm run build
         working-directory: preview-page
