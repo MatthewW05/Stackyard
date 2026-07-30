@@ -1,9 +1,8 @@
 import type { GitHubRepo } from '@/utils/github';
 
-// Placeholder host for the WebContainer preview page (feature/webcontainer-page,
-// not yet deployed). Point this at a locally running dev server for now;
-// swap in the real deployed URL once that branch ships.
-export const PREVIEW_PAGE_URL = 'http://localhost:5173/preview';
+// Hosted on Vercel; see preview-page/ and WEBCONTAINER_SPIKE_NOTES.md for why
+// this can't be a page packaged into the extension itself.
+export const PREVIEW_PAGE_URL = 'https://preview-page-seven.vercel.app/';
 
 export function buildPreviewUrl({ owner, repo }: GitHubRepo): string {
   const url = new URL(PREVIEW_PAGE_URL);

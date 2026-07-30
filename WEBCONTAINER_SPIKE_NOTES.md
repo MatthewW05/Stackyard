@@ -65,6 +65,28 @@ This changes the shape of `feature/webcontainer-page` from "a page bundled into 
 
 Caveat: this is one image from `avatars.githubusercontent.com`, which likely sends permissive CORP/CORS headers already. Real Vite/React dev servers pull in heavier stuff — `@font-face` assets, HMR websocket connections, dynamically-imported chunks — that weren't tested here. Treat this as "no evidence of a problem at the simple end," not "confirmed non-issue for all real repos." Worth revisiting with an actual framework's dev-server output once `feature/webcontainer-page` exists for real (and once it's a hosted page rather than an extension page, per the fix above — that's the config it'll actually run under).
 
+## Follow-up from `feature/webcontainer-page`: benign Firefox console noise
+
+Once boot logic landed on the real hosted page (not just the spike), Firefox
+produces console output the spike didn't surface, even though
+`WebContainer.boot()` still succeeds and the page reaches "ready":
+
+- Three `Feature Policy: Skipping unsupported feature name
+"cross-origin-isolated"` warnings, thrown from inside `@webcontainer/api`'s
+  own bundled code (not this project's code).
+- Two `Cookie "ahoy_visitor"/"ahoy_visit" has been rejected... SameSite`
+  errors, sourced from `https://stackblitz.com/headless?version=1.6.4` - the
+  hosted iframe `@webcontainer/api` loads to actually run the container, and
+  its own analytics cookie being blocked by Firefox's cross-site cookie
+  policy.
+
+Both are emitted by the third-party library/StackBlitz's hosted runtime, not
+by this project's code, and neither prevents `WebContainer.boot()` from
+resolving. Confirmed via Playwright against a real headless Firefox build.
+Treating this as a known, unavoidable-for-now caveat rather than a blocker -
+worth re-checking on future `@webcontainer/api` version bumps in case
+StackBlitz addresses it upstream.
+
 ## Licensing — flag for later, not blocking now
 
 StackBlitz's docs state a commercial license is required for "production usage... in a commercial, for-profit setting," but prototypes/POCs are exempt, and the docs don't explicitly address free/open-source personal projects. Worth a direct confirmation with StackBlitz before Phase 3 publishing (same flag as in the main README's Credits section) — doesn't block this spike or the MVP build.
