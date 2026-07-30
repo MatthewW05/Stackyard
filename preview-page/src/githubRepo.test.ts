@@ -77,6 +77,51 @@ describe('fetchRepoFiles', () => {
     await expect(fetchRepoFiles('octocat', 'huge-repo')).rejects.toThrow(RepoTooLargeError);
   });
 
+  it('caps concurrent blob requests instead of firing them all at once', async () => {
+    const FILE_COUNT = 20;
+    const MAX_ALLOWED_CONCURRENCY = 6;
+    let inFlight = 0;
+    let maxInFlight = 0;
+
+    fetchMock.mockImplementation((url: string) => {
+      if (url === 'https://api.github.com/repos/octocat/many-files') {
+        return Promise.resolve(jsonResponse({ default_branch: 'main' }));
+      }
+      if (url === 'https://api.github.com/repos/octocat/many-files/git/trees/main?recursive=1') {
+        return Promise.resolve(
+          jsonResponse({
+            truncated: false,
+            tree: Array.from({ length: FILE_COUNT }, (_, i) => ({
+              path: `file-${i}.txt`,
+              type: 'blob',
+              sha: `blob-${i}`,
+            })),
+          }),
+        );
+      }
+      const blobMatch = /\/git\/blobs\/blob-(\d+)$/.exec(url);
+      if (blobMatch) {
+        inFlight++;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        return new Promise((resolve) => {
+          setTimeout(() => {
+            inFlight--;
+            resolve(
+              jsonResponse({ content: base64Of(`content-${blobMatch[1]}`), encoding: 'base64' }),
+            );
+          }, 5);
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    const files = await fetchRepoFiles('octocat', 'many-files');
+
+    expect(files).toHaveLength(FILE_COUNT);
+    expect(maxInFlight).toBeGreaterThan(1);
+    expect(maxInFlight).toBeLessThanOrEqual(MAX_ALLOWED_CONCURRENCY);
+  });
+
   it('throws a clear error when a GitHub request fails', async () => {
     fetchMock.mockImplementation((url: string) => {
       if (url === 'https://api.github.com/repos/octocat/missing') {

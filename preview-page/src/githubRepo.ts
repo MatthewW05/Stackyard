@@ -64,6 +64,31 @@ async function getBlobContents(owner: string, repo: string, sha: string): Promis
   return base64ToBytes(data.content);
 }
 
+// GitHub's unauthenticated API applies a secondary "abuse detection" rate
+// limit to bursts of concurrent requests, independent of the 60/hr quota -
+// firing one request per file via Promise.all gets 403s on real repos with
+// more than a handful of files. Capping concurrency avoids tripping it.
+const BLOB_FETCH_CONCURRENCY = 6;
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const index = nextIndex++;
+      results[index] = await fn(items[index]);
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
 /**
  * Fetches every file in a public GitHub repo's default branch and returns
  * them as a flat list ready for `buildFileSystemTree`. Throws
@@ -77,10 +102,9 @@ export async function fetchRepoFiles(owner: string, repo: string): Promise<RepoF
   }
 
   const blobEntries = tree.filter((entry) => entry.type === 'blob');
-  return Promise.all(
-    blobEntries.map(async (entry) => ({
-      path: entry.path,
-      contents: await getBlobContents(owner, repo, entry.sha),
-    })),
+  const contents = await mapWithConcurrency(blobEntries, BLOB_FETCH_CONCURRENCY, (entry) =>
+    getBlobContents(owner, repo, entry.sha),
   );
+
+  return blobEntries.map((entry, i) => ({ path: entry.path, contents: contents[i] }));
 }

@@ -1,4 +1,7 @@
 import { WebContainer } from '@webcontainer/api';
+import { fetchRepoFiles } from './githubRepo';
+import { buildFileSystemTree } from './fileSystemTree';
+import { listMountedFiles } from './listMountedFiles';
 
 interface RepoParams {
   owner: string;
@@ -26,6 +29,12 @@ repoStatus.textContent = params
 const bootStatus = document.createElement('p');
 app.append(bootStatus);
 
+const mountStatus = document.createElement('p');
+app.append(mountStatus);
+
+const fileList = document.createElement('pre');
+app.append(fileList);
+
 // WebContainer.boot() throws if called twice in the same page - cache the
 // promise so any future re-entry reuses the same instance instead of
 // re-booting. See WEBCONTAINER_SPIKE_NOTES.md.
@@ -46,10 +55,28 @@ async function initWebContainer() {
 
   bootStatus.textContent = 'Booting WebContainer...';
   try {
-    await bootWebContainer();
+    const instance = await bootWebContainer();
     bootStatus.textContent = 'WebContainer ready.';
+    if (params) await mountRepo(instance, params);
   } catch (error) {
     bootStatus.textContent = `Failed to boot WebContainer: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+async function mountRepo(instance: WebContainer, { owner, repo }: RepoParams): Promise<void> {
+  mountStatus.textContent = `Fetching ${owner}/${repo} from GitHub...`;
+  try {
+    const files = await fetchRepoFiles(owner, repo);
+    mountStatus.textContent = `Mounting ${files.length} files...`;
+
+    const tree = buildFileSystemTree(files);
+    await instance.mount(tree);
+
+    const mountedPaths = await listMountedFiles(instance.fs);
+    mountStatus.textContent = `Mounted ${mountedPaths.length} files.`;
+    fileList.textContent = mountedPaths.join('\n');
+  } catch (error) {
+    mountStatus.textContent = `Failed to fetch/mount repo: ${error instanceof Error ? error.message : String(error)}`;
   }
 }
 
