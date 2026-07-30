@@ -11,5 +11,8 @@
   "devDependencies": {
     "typescript": "^5.9.3",
     "vite": "^7.1.5"
+  },
+  "dependencies": {
+    "@webcontainer/api": "^1.6.4"
   }
 }
