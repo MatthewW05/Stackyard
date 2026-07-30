@@ -72,7 +72,7 @@ produces console output the spike didn't surface, even though
 `WebContainer.boot()` still succeeds and the page reaches "ready":
 
 - Three `Feature Policy: Skipping unsupported feature name
-  "cross-origin-isolated"` warnings, thrown from inside `@webcontainer/api`'s
+"cross-origin-isolated"` warnings, thrown from inside `@webcontainer/api`'s
   own bundled code (not this project's code).
 - Two `Cookie "ahoy_visitor"/"ahoy_visit" has been rejected... SameSite`
   errors, sourced from `https://stackblitz.com/headless?version=1.6.4` - the
