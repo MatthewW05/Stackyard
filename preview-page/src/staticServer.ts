@@ -48,12 +48,16 @@ http.createServer((req, res) => {
 /**
  * Returns true if the mounted WebContainer filesystem has an /index.html,
  * indicating this is a static site that can be served without npm.
+ *
+ * Accepts a callback rather than the fs object directly to avoid TypeScript's
+ * overload-assignability check on FileSystemAPI.readFile, which has a
+ * Uint8Array overload that is incompatible with a single-signature interface.
  */
-export async function hasStaticEntry(fs: {
-  readFile: (path: string, encoding: string) => Promise<string>;
-}): Promise<boolean> {
+export async function hasStaticEntry(
+  checkForIndex: () => Promise<unknown>,
+): Promise<boolean> {
   try {
-    await fs.readFile('/index.html', 'utf-8');
+    await checkForIndex();
     return true;
   } catch {
     return false;

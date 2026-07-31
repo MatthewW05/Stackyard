@@ -2,27 +2,24 @@ import { describe, it, expect } from 'vitest';
 import { hasStaticEntry, STATIC_SERVER_SCRIPT } from './staticServer';
 
 describe('hasStaticEntry', () => {
-  it('returns true when /index.html is readable', async () => {
-    const fs = { readFile: async () => '<html></html>' };
-    expect(await hasStaticEntry(fs)).toBe(true);
+  it('returns true when the check resolves', async () => {
+    expect(await hasStaticEntry(async () => '<html></html>')).toBe(true);
   });
 
-  it('returns false when /index.html is not found', async () => {
-    const fs = {
-      readFile: async (): Promise<string> => {
+  it('returns false when the check throws ENOENT', async () => {
+    expect(
+      await hasStaticEntry(async () => {
         throw new Error('ENOENT');
-      },
-    };
-    expect(await hasStaticEntry(fs)).toBe(false);
+      }),
+    ).toBe(false);
   });
 
-  it('returns false for any fs error, not just ENOENT', async () => {
-    const fs = {
-      readFile: async (): Promise<string> => {
+  it('returns false for any error, not just ENOENT', async () => {
+    expect(
+      await hasStaticEntry(async () => {
         throw new Error('Permission denied');
-      },
-    };
-    expect(await hasStaticEntry(fs)).toBe(false);
+      }),
+    ).toBe(false);
   });
 });
 

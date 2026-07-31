@@ -87,7 +87,7 @@ async function mountRepo(instance: WebContainer, { owner, repo }: RepoParams): P
   try {
     packageJsonContent = await instance.fs.readFile('/package.json', 'utf-8');
   } catch {
-    if (await hasStaticEntry(instance.fs)) {
+    if (await hasStaticEntry(() => instance.fs.readFile('/index.html', 'utf-8'))) {
       installStatus.textContent = 'No package.json — detected static site.';
       await serveStatic(instance);
     } else {
