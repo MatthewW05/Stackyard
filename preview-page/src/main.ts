@@ -2,6 +2,7 @@ import { WebContainer } from '@webcontainer/api';
 import { fetchRepoFiles } from './githubRepo';
 import { buildFileSystemTree } from './fileSystemTree';
 import { detectStartScript, sanitizePackageJson } from './devServer';
+import { hasStaticEntry, STATIC_SERVER_SCRIPT } from './staticServer';
 
 interface RepoParams {
   owner: string;
@@ -86,7 +87,13 @@ async function mountRepo(instance: WebContainer, { owner, repo }: RepoParams): P
   try {
     packageJsonContent = await instance.fs.readFile('/package.json', 'utf-8');
   } catch {
-    installStatus.textContent = 'No package.json found — nothing to install.';
+    if (await hasStaticEntry(instance.fs)) {
+      installStatus.textContent = 'No package.json — detected static site.';
+      await serveStatic(instance);
+    } else {
+      installStatus.textContent =
+        'No package.json or index.html found — cannot preview this repo.';
+    }
     return;
   }
 
@@ -191,6 +198,42 @@ async function startDevServer(instance: WebContainer, startScript: string): Prom
   const exitCode = await process.exit;
   if (exitCode !== 0) {
     devStatus.textContent = `npm run ${startScript} exited with code ${exitCode}.`;
+  }
+}
+
+async function serveStatic(instance: WebContainer): Promise<void> {
+  const staticStatus = document.createElement('p');
+  app.append(staticStatus);
+
+  const staticOutput = document.createElement('pre');
+  app.append(staticOutput);
+
+  const preview = document.createElement('iframe');
+  preview.style.cssText = 'display:none; width:100%; height:80vh; border:1px solid #ccc;';
+  app.append(preview);
+
+  staticStatus.textContent = 'Starting static file server...';
+
+  await instance.fs.writeFile('/stackyard-static-server.js', STATIC_SERVER_SCRIPT);
+
+  instance.on('server-ready', (_port, url) => {
+    staticStatus.textContent = 'Server ready.';
+    preview.src = url;
+    preview.style.display = 'block';
+  });
+
+  const proc = await instance.spawn('node', ['stackyard-static-server.js']);
+  proc.output.pipeTo(
+    new WritableStream({
+      write(chunk) {
+        appendTerminalOutput(staticOutput, chunk);
+      },
+    }),
+  );
+
+  const exitCode = await proc.exit;
+  if (exitCode !== 0) {
+    staticStatus.textContent = `Static server exited with code ${exitCode}.`;
   }
 }
 

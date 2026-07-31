@@ -25,13 +25,15 @@ const MIME = {
 
 http.createServer((req, res) => {
   const urlPath = (req.url || '/').split('?')[0];
-  let filePath = path.join('/', urlPath === '/' ? 'index.html' : urlPath);
+  // Prefix with '.' to make the path relative to the process CWD (the
+  // WebContainer project root). Absolute paths like '/index.html' resolve
+  // against the container OS root (/bin, /etc, ...), not the project files.
+  const base = '.' + urlPath;
+  const filePath = (urlPath === '/' || urlPath.endsWith('/'))
+    ? path.join(base, 'index.html')
+    : base;
 
   try {
-    const stat = fs.statSync(filePath);
-    if (stat.isDirectory()) {
-      filePath = path.join(filePath, 'index.html');
-    }
     const content = fs.readFileSync(filePath);
     const ext = path.extname(filePath).toLowerCase();
     res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' });

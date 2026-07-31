@@ -40,8 +40,12 @@ describe('STATIC_SERVER_SCRIPT', () => {
     expect(STATIC_SERVER_SCRIPT).toContain('index.html');
   });
 
-  it('handles directory paths by appending index.html', () => {
-    expect(STATIC_SERVER_SCRIPT).toContain('isDirectory');
+  it('uses relative paths so files resolve against the process CWD, not the OS root', () => {
+    expect(STATIC_SERVER_SCRIPT).toContain("'.' + urlPath");
+  });
+
+  it('maps trailing-slash and root paths to index.html', () => {
+    expect(STATIC_SERVER_SCRIPT).toContain("urlPath.endsWith('/')");
   });
 
   it('strips query strings from request URLs', () => {
