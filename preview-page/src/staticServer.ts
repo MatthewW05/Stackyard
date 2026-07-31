@@ -53,9 +53,7 @@ http.createServer((req, res) => {
  * overload-assignability check on FileSystemAPI.readFile, which has a
  * Uint8Array overload that is incompatible with a single-signature interface.
  */
-export async function hasStaticEntry(
-  checkForIndex: () => Promise<unknown>,
-): Promise<boolean> {
+export async function hasStaticEntry(checkForIndex: () => Promise<unknown>): Promise<boolean> {
   try {
     await checkForIndex();
     return true;
