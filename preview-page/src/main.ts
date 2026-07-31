@@ -91,8 +91,7 @@ async function mountRepo(instance: WebContainer, { owner, repo }: RepoParams): P
       installStatus.textContent = 'No package.json — detected static site.';
       await serveStatic(instance);
     } else {
-      installStatus.textContent =
-        'No package.json or index.html found — cannot preview this repo.';
+      installStatus.textContent = 'No package.json or index.html found — cannot preview this repo.';
     }
     return;
   }
