@@ -12,7 +12,9 @@ describe('detectStartScript', () => {
   });
 
   it('returns null when scripts has no recognized script', () => {
-    expect(detectStartScript(JSON.stringify({ scripts: { build: 'vite build', test: 'vitest' } }))).toBeNull();
+    expect(
+      detectStartScript(JSON.stringify({ scripts: { build: 'vite build', test: 'vitest' } })),
+    ).toBeNull();
   });
 
   it('returns "dev" when dev script is present', () => {
@@ -20,7 +22,9 @@ describe('detectStartScript', () => {
   });
 
   it('returns "start" when only start script is present', () => {
-    expect(detectStartScript(JSON.stringify({ scripts: { start: 'node index.js' } }))).toBe('start');
+    expect(detectStartScript(JSON.stringify({ scripts: { start: 'node index.js' } }))).toBe(
+      'start',
+    );
   });
 
   it('returns "serve" when only serve script is present', () => {
@@ -35,7 +39,9 @@ describe('detectStartScript', () => {
 
   it('prefers "start" over "serve"', () => {
     expect(
-      detectStartScript(JSON.stringify({ scripts: { start: 'node index.js', serve: 'vite preview' } })),
+      detectStartScript(
+        JSON.stringify({ scripts: { start: 'node index.js', serve: 'vite preview' } }),
+      ),
     ).toBe('start');
   });
 
@@ -52,19 +58,28 @@ describe('sanitizePackageJson', () => {
   });
 
   it('strips --turbopack and adds --no-turbopack for next dev (v15)', () => {
-    const input = JSON.stringify({ dependencies: { next: '^15.0.0' }, scripts: { dev: 'next dev --turbopack' } });
+    const input = JSON.stringify({
+      dependencies: { next: '^15.0.0' },
+      scripts: { dev: 'next dev --turbopack' },
+    });
     const result = JSON.parse(sanitizePackageJson(input));
     expect(result.scripts.dev).toBe('next dev --no-turbopack');
   });
 
   it('adds --no-turbopack to plain next dev for v14-15 (auto-enables Turbopack)', () => {
-    const input = JSON.stringify({ dependencies: { next: '^15.0.0' }, scripts: { dev: 'next dev' } });
+    const input = JSON.stringify({
+      dependencies: { next: '^15.0.0' },
+      scripts: { dev: 'next dev' },
+    });
     const result = JSON.parse(sanitizePackageJson(input));
     expect(result.scripts.dev).toBe('next dev --no-turbopack');
   });
 
   it('does not add --no-turbopack for Next.js 16+ (flag was removed)', () => {
-    const input = JSON.stringify({ dependencies: { next: '^16.0.0' }, scripts: { dev: 'next dev' } });
+    const input = JSON.stringify({
+      dependencies: { next: '^16.0.0' },
+      scripts: { dev: 'next dev' },
+    });
     const result = JSON.parse(sanitizePackageJson(input));
     expect(result.scripts.dev).toBe('next dev');
   });
@@ -76,12 +91,18 @@ describe('sanitizePackageJson', () => {
   });
 
   it('does not duplicate --no-turbopack if already present', () => {
-    const input = JSON.stringify({ dependencies: { next: '^15.0.0' }, scripts: { dev: 'next dev --no-turbopack' } });
+    const input = JSON.stringify({
+      dependencies: { next: '^15.0.0' },
+      scripts: { dev: 'next dev --no-turbopack' },
+    });
     expect(sanitizePackageJson(input)).toBe(input);
   });
 
   it('strips --turbopack from non-dev next commands but does not add --no-turbopack', () => {
-    const input = JSON.stringify({ dependencies: { next: '^15.0.0' }, scripts: { start: 'next start --turbopack' } });
+    const input = JSON.stringify({
+      dependencies: { next: '^15.0.0' },
+      scripts: { start: 'next start --turbopack' },
+    });
     const result = JSON.parse(sanitizePackageJson(input));
     expect(result.scripts.start).toBe('next start');
   });
@@ -92,7 +113,11 @@ describe('sanitizePackageJson', () => {
   });
 
   it('leaves non-script fields intact', () => {
-    const input = JSON.stringify({ name: 'my-app', version: '1.0.0', scripts: { dev: 'next dev --turbopack' } });
+    const input = JSON.stringify({
+      name: 'my-app',
+      version: '1.0.0',
+      scripts: { dev: 'next dev --turbopack' },
+    });
     const result = JSON.parse(sanitizePackageJson(input));
     expect(result.name).toBe('my-app');
     expect(result.version).toBe('1.0.0');

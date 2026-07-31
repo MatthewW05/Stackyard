@@ -39,7 +39,12 @@ async function getDefaultBranch(owner: string, repo: string, token?: string): Pr
   return data.default_branch;
 }
 
-async function getTree(owner: string, repo: string, branch: string, token?: string): Promise<GitHubTreeResponse> {
+async function getTree(
+  owner: string,
+  repo: string,
+  branch: string,
+  token?: string,
+): Promise<GitHubTreeResponse> {
   const response = await githubFetch(
     `/repos/${owner}/${repo}/git/trees/${encodeURIComponent(branch)}?recursive=1`,
     token,
@@ -56,7 +61,12 @@ function base64ToBytes(base64: string): Uint8Array {
   return bytes;
 }
 
-async function getBlobContents(owner: string, repo: string, sha: string, token?: string): Promise<Uint8Array> {
+async function getBlobContents(
+  owner: string,
+  repo: string,
+  sha: string,
+  token?: string,
+): Promise<Uint8Array> {
   const response = await githubFetch(`/repos/${owner}/${repo}/git/blobs/${sha}`, token);
   const data = (await response.json()) as { content: string; encoding: string };
   if (data.encoding !== 'base64') {
@@ -95,7 +105,11 @@ async function mapWithConcurrency<T, R>(
  * them as a flat list ready for `buildFileSystemTree`. Throws
  * `RepoTooLargeError` if GitHub truncates the tree response.
  */
-export async function fetchRepoFiles(owner: string, repo: string, token?: string): Promise<RepoFile[]> {
+export async function fetchRepoFiles(
+  owner: string,
+  repo: string,
+  token?: string,
+): Promise<RepoFile[]> {
   const branch = await getDefaultBranch(owner, repo, token);
   const { tree, truncated } = await getTree(owner, repo, branch, token);
   if (truncated) {
