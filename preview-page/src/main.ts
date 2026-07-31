@@ -114,7 +114,9 @@ async function mountRepo(instance: WebContainer, { owner, repo }: RepoParams): P
 // - Bare \r overwrites the current line (carriage return semantics).
 // - All remaining ANSI escape sequences are stripped.
 function appendTerminalOutput(element: HTMLPreElement, chunk: string): void {
+  // eslint-disable-next-line no-control-regex
   const withCR = chunk.replace(/\x1b\[\d*G/g, '\r');
+  // eslint-disable-next-line no-control-regex
   const stripped = withCR.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '');
 
   let text = element.textContent ?? '';
