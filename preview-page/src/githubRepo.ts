@@ -23,25 +23,26 @@ interface GitHubTreeResponse {
   truncated: boolean;
 }
 
-async function githubFetch(path: string): Promise<Response> {
-  const response = await fetch(`${GITHUB_API}${path}`, {
-    headers: { Accept: 'application/vnd.github+json' },
-  });
+async function githubFetch(path: string, token?: string): Promise<Response> {
+  const headers: Record<string, string> = { Accept: 'application/vnd.github+json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const response = await fetch(`${GITHUB_API}${path}`, { headers });
   if (!response.ok) {
     throw new Error(`GitHub API request failed (${response.status}): ${path}`);
   }
   return response;
 }
 
-async function getDefaultBranch(owner: string, repo: string): Promise<string> {
-  const response = await githubFetch(`/repos/${owner}/${repo}`);
+async function getDefaultBranch(owner: string, repo: string, token?: string): Promise<string> {
+  const response = await githubFetch(`/repos/${owner}/${repo}`, token);
   const data = (await response.json()) as { default_branch: string };
   return data.default_branch;
 }
 
-async function getTree(owner: string, repo: string, branch: string): Promise<GitHubTreeResponse> {
+async function getTree(owner: string, repo: string, branch: string, token?: string): Promise<GitHubTreeResponse> {
   const response = await githubFetch(
     `/repos/${owner}/${repo}/git/trees/${encodeURIComponent(branch)}?recursive=1`,
+    token,
   );
   return (await response.json()) as GitHubTreeResponse;
 }
@@ -55,8 +56,8 @@ function base64ToBytes(base64: string): Uint8Array {
   return bytes;
 }
 
-async function getBlobContents(owner: string, repo: string, sha: string): Promise<Uint8Array> {
-  const response = await githubFetch(`/repos/${owner}/${repo}/git/blobs/${sha}`);
+async function getBlobContents(owner: string, repo: string, sha: string, token?: string): Promise<Uint8Array> {
+  const response = await githubFetch(`/repos/${owner}/${repo}/git/blobs/${sha}`, token);
   const data = (await response.json()) as { content: string; encoding: string };
   if (data.encoding !== 'base64') {
     throw new Error(`Unexpected blob encoding "${data.encoding}" for blob ${sha}`);
@@ -94,16 +95,16 @@ async function mapWithConcurrency<T, R>(
  * them as a flat list ready for `buildFileSystemTree`. Throws
  * `RepoTooLargeError` if GitHub truncates the tree response.
  */
-export async function fetchRepoFiles(owner: string, repo: string): Promise<RepoFile[]> {
-  const branch = await getDefaultBranch(owner, repo);
-  const { tree, truncated } = await getTree(owner, repo, branch);
+export async function fetchRepoFiles(owner: string, repo: string, token?: string): Promise<RepoFile[]> {
+  const branch = await getDefaultBranch(owner, repo, token);
+  const { tree, truncated } = await getTree(owner, repo, branch, token);
   if (truncated) {
     throw new RepoTooLargeError(owner, repo);
   }
 
   const blobEntries = tree.filter((entry) => entry.type === 'blob');
   const contents = await mapWithConcurrency(blobEntries, BLOB_FETCH_CONCURRENCY, (entry) =>
-    getBlobContents(owner, repo, entry.sha),
+    getBlobContents(owner, repo, entry.sha, token),
   );
 
   return blobEntries.map((entry, i) => ({ path: entry.path, contents: contents[i] }));

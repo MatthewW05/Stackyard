@@ -1,7 +1,7 @@
 import { WebContainer } from '@webcontainer/api';
 import { fetchRepoFiles } from './githubRepo';
 import { buildFileSystemTree } from './fileSystemTree';
-import { detectStartScript } from './devServer';
+import { detectStartScript, sanitizePackageJson } from './devServer';
 
 interface RepoParams {
   owner: string;
@@ -68,8 +68,9 @@ async function initWebContainer() {
 
 async function mountRepo(instance: WebContainer, { owner, repo }: RepoParams): Promise<void> {
   mountStatus.textContent = `Fetching ${owner}/${repo} from GitHub...`;
+  const token = new URLSearchParams(location.search).get('token') ?? undefined;
   try {
-    const files = await fetchRepoFiles(owner, repo);
+    const files = await fetchRepoFiles(owner, repo, token);
     mountStatus.textContent = `Mounting ${files.length} files...`;
 
     const tree = buildFileSystemTree(files);
@@ -89,13 +90,21 @@ async function mountRepo(instance: WebContainer, { owner, repo }: RepoParams): P
     return;
   }
 
-  const startScript = detectStartScript(packageJsonContent);
+  const sanitized = sanitizePackageJson(packageJsonContent);
+  if (sanitized !== packageJsonContent) {
+    await instance.fs.writeFile('/package.json', sanitized);
+  }
+
+  const startScript = detectStartScript(sanitized);
   if (!startScript) {
     installStatus.textContent = 'No recognized dev/start script in package.json.';
     return;
   }
 
-  await runInstall(instance, startScript);
+  const installOk = await runInstall(instance);
+  if (!installOk) return;
+
+  await startDevServer(instance, startScript);
 }
 
 // Renders terminal output cleanly in a <pre>:
@@ -127,9 +136,9 @@ function appendTerminalOutput(element: HTMLPreElement, chunk: string): void {
   element.textContent = text;
 }
 
-async function runInstall(instance: WebContainer, startScript: string): Promise<void> {
+async function runInstall(instance: WebContainer): Promise<boolean> {
   installStatus.textContent = 'Running npm install...';
-  const process = await instance.spawn('npm', ['install']);
+  const process = await instance.spawn('npm', ['install', '--legacy-peer-deps']);
   process.output.pipeTo(
     new WritableStream({
       write(chunk) {
@@ -141,10 +150,46 @@ async function runInstall(instance: WebContainer, startScript: string): Promise<
   const exitCode = await process.exit;
   if (exitCode !== 0) {
     installStatus.textContent = `npm install failed (exit ${exitCode}).`;
-    return;
+    return false;
   }
 
-  installStatus.textContent = `npm install done. Starting ${startScript}...`;
+  installStatus.textContent = 'npm install done.';
+  return true;
+}
+
+async function startDevServer(instance: WebContainer, startScript: string): Promise<void> {
+  const devStatus = document.createElement('p');
+  app.append(devStatus);
+
+  const devOutput = document.createElement('pre');
+  app.append(devOutput);
+
+  const preview = document.createElement('iframe');
+  preview.style.cssText = 'display:none; width:100%; height:80vh; border:1px solid #ccc;';
+  app.append(preview);
+
+  devStatus.textContent = `Starting npm run ${startScript}...`;
+
+  // Register server-ready before spawning so we never miss the event.
+  instance.on('server-ready', (_port, url) => {
+    devStatus.textContent = 'Server ready.';
+    preview.src = url;
+    preview.style.display = 'block';
+  });
+
+  const process = await instance.spawn('npm', ['run', startScript]);
+  process.output.pipeTo(
+    new WritableStream({
+      write(chunk) {
+        appendTerminalOutput(devOutput, chunk);
+      },
+    }),
+  );
+
+  const exitCode = await process.exit;
+  if (exitCode !== 0) {
+    devStatus.textContent = `npm run ${startScript} exited with code ${exitCode}.`;
+  }
 }
 
 void initWebContainer();
