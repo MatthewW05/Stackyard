@@ -47,21 +47,48 @@ describe('detectStartScript', () => {
 
 describe('sanitizePackageJson', () => {
   it('returns the original string when nothing needs stripping', () => {
-    const input = JSON.stringify({ scripts: { dev: 'next dev' } });
+    const input = JSON.stringify({ scripts: { dev: 'vite' } });
     expect(sanitizePackageJson(input)).toBe(input);
   });
 
-  it('strips --turbopack from a script command', () => {
-    const input = JSON.stringify({ scripts: { dev: 'next dev --turbopack' } });
+  it('strips --turbopack and adds --no-turbopack for next dev (v15)', () => {
+    const input = JSON.stringify({ dependencies: { next: '^15.0.0' }, scripts: { dev: 'next dev --turbopack' } });
+    const result = JSON.parse(sanitizePackageJson(input));
+    expect(result.scripts.dev).toBe('next dev --no-turbopack');
+  });
+
+  it('adds --no-turbopack to plain next dev for v14-15 (auto-enables Turbopack)', () => {
+    const input = JSON.stringify({ dependencies: { next: '^15.0.0' }, scripts: { dev: 'next dev' } });
+    const result = JSON.parse(sanitizePackageJson(input));
+    expect(result.scripts.dev).toBe('next dev --no-turbopack');
+  });
+
+  it('does not add --no-turbopack for Next.js 16+ (flag was removed)', () => {
+    const input = JSON.stringify({ dependencies: { next: '^16.0.0' }, scripts: { dev: 'next dev' } });
     const result = JSON.parse(sanitizePackageJson(input));
     expect(result.scripts.dev).toBe('next dev');
   });
 
-  it('strips --turbopack from multiple scripts', () => {
-    const input = JSON.stringify({ scripts: { dev: 'next dev --turbopack', start: 'next start --turbopack' } });
+  it('does not add --no-turbopack when next version is unknown', () => {
+    const input = JSON.stringify({ scripts: { dev: 'next dev' } });
     const result = JSON.parse(sanitizePackageJson(input));
     expect(result.scripts.dev).toBe('next dev');
+  });
+
+  it('does not duplicate --no-turbopack if already present', () => {
+    const input = JSON.stringify({ dependencies: { next: '^15.0.0' }, scripts: { dev: 'next dev --no-turbopack' } });
+    expect(sanitizePackageJson(input)).toBe(input);
+  });
+
+  it('strips --turbopack from non-dev next commands but does not add --no-turbopack', () => {
+    const input = JSON.stringify({ dependencies: { next: '^15.0.0' }, scripts: { start: 'next start --turbopack' } });
+    const result = JSON.parse(sanitizePackageJson(input));
     expect(result.scripts.start).toBe('next start');
+  });
+
+  it('does not modify non-next scripts', () => {
+    const input = JSON.stringify({ scripts: { dev: 'vite', build: 'vite build' } });
+    expect(sanitizePackageJson(input)).toBe(input);
   });
 
   it('leaves non-script fields intact', () => {
