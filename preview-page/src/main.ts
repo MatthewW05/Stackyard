@@ -1,8 +1,9 @@
 import { WebContainer } from '@webcontainer/api';
 import { fetchRepoFiles } from './githubRepo';
-import { buildFileSystemTree } from './fileSystemTree';
+import { buildFileSystemTree, type RepoFile } from './fileSystemTree';
 import { detectStartScript, sanitizePackageJson } from './devServer';
 import { hasStaticEntry, STATIC_SERVER_SCRIPT } from './staticServer';
+import { detectUnsupportedTech } from './detectUnsupportedTech';
 
 interface RepoParams {
   owner: string;
@@ -70,8 +71,9 @@ async function initWebContainer() {
 async function mountRepo(instance: WebContainer, { owner, repo }: RepoParams): Promise<void> {
   mountStatus.textContent = `Fetching ${owner}/${repo} from GitHub...`;
   const token = new URLSearchParams(location.search).get('token') ?? undefined;
+  let files: RepoFile[];
   try {
-    const files = await fetchRepoFiles(owner, repo, token);
+    files = await fetchRepoFiles(owner, repo, token);
     mountStatus.textContent = `Mounting ${files.length} files...`;
 
     const tree = buildFileSystemTree(files);
@@ -87,6 +89,11 @@ async function mountRepo(instance: WebContainer, { owner, repo }: RepoParams): P
   try {
     packageJsonContent = await instance.fs.readFile('/package.json', 'utf-8');
   } catch {
+    const unsupported = detectUnsupportedTech(files.map((f) => f.path));
+    if (unsupported) {
+      installStatus.textContent = `${unsupported.tech}: ${unsupported.message}`;
+      return;
+    }
     if (await hasStaticEntry(() => instance.fs.readFile('/index.html', 'utf-8'))) {
       installStatus.textContent = 'No package.json — detected static site.';
       await serveStatic(instance);
