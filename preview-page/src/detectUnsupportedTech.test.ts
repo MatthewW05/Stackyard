@@ -79,7 +79,10 @@ describe('detectUnsupportedTech', () => {
 
   describe('Ruby', () => {
     it('detects Gemfile at root', () => {
-      const result = detectUnsupportedTech(['Gemfile', 'app/controllers/application_controller.rb']);
+      const result = detectUnsupportedTech([
+        'Gemfile',
+        'app/controllers/application_controller.rb',
+      ]);
       expect(result?.tech).toBe('Ruby');
     });
 
