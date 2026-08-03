@@ -4,6 +4,8 @@ import { buildFileSystemTree, type RepoFile } from './fileSystemTree';
 import { detectStartScript, sanitizePackageJson } from './devServer';
 import { hasStaticEntry, STATIC_SERVER_SCRIPT } from './staticServer';
 import { detectUnsupportedTech } from './detectUnsupportedTech';
+import { createStatusLine } from './status';
+import './style.css';
 
 interface RepoParams {
   owner: string;
@@ -28,14 +30,14 @@ repoStatus.textContent = params
   ? `Preview: ${params.owner}/${params.repo}`
   : "Missing owner/repo query params. Open this page via the Stackyard extension's Preview button.";
 
-const bootStatus = document.createElement('p');
-app.append(bootStatus);
+const bootStatus = createStatusLine();
+app.append(bootStatus.el);
 
-const mountStatus = document.createElement('p');
-app.append(mountStatus);
+const mountStatus = createStatusLine();
+app.append(mountStatus.el);
 
-const installStatus = document.createElement('p');
-app.append(installStatus);
+const installStatus = createStatusLine();
+app.append(installStatus.el);
 
 const installOutput = document.createElement('pre');
 app.append(installOutput);
@@ -52,36 +54,44 @@ function bootWebContainer(): Promise<WebContainer> {
 
 async function initWebContainer() {
   if (!crossOriginIsolated) {
-    bootStatus.textContent =
+    bootStatus.set(
       'Cannot boot WebContainer: this page is not cross-origin isolated ' +
-      '(crossOriginIsolated is false). Check that COOP/COEP headers are being served.';
+        '(crossOriginIsolated is false). Check that COOP/COEP headers are being served.',
+      'error',
+    );
     return;
   }
 
-  bootStatus.textContent = 'Booting WebContainer...';
+  bootStatus.set('Booting WebContainer...', 'loading');
   try {
     const instance = await bootWebContainer();
-    bootStatus.textContent = 'WebContainer ready.';
+    bootStatus.set('WebContainer ready.', 'done');
     if (params) await mountRepo(instance, params);
   } catch (error) {
-    bootStatus.textContent = `Failed to boot WebContainer: ${error instanceof Error ? error.message : String(error)}`;
+    bootStatus.set(
+      `Failed to boot WebContainer: ${error instanceof Error ? error.message : String(error)}`,
+      'error',
+    );
   }
 }
 
 async function mountRepo(instance: WebContainer, { owner, repo }: RepoParams): Promise<void> {
-  mountStatus.textContent = `Fetching ${owner}/${repo} from GitHub...`;
+  mountStatus.set(`Fetching ${owner}/${repo} from GitHub...`, 'loading');
   const token = new URLSearchParams(location.search).get('token') ?? undefined;
   let files: RepoFile[];
   try {
     files = await fetchRepoFiles(owner, repo, token);
-    mountStatus.textContent = `Mounting ${files.length} files...`;
+    mountStatus.set(`Mounting ${files.length} files...`, 'loading');
 
     const tree = buildFileSystemTree(files);
     await instance.mount(tree);
 
-    mountStatus.textContent = `Mounted ${files.length} files.`;
+    mountStatus.set(`Mounted ${files.length} files.`, 'done');
   } catch (error) {
-    mountStatus.textContent = `Failed to fetch/mount repo: ${error instanceof Error ? error.message : String(error)}`;
+    mountStatus.set(
+      `Failed to fetch/mount repo: ${error instanceof Error ? error.message : String(error)}`,
+      'error',
+    );
     return;
   }
 
@@ -91,14 +101,14 @@ async function mountRepo(instance: WebContainer, { owner, repo }: RepoParams): P
   } catch {
     const unsupported = detectUnsupportedTech(files.map((f) => f.path));
     if (unsupported) {
-      installStatus.textContent = `${unsupported.tech}: ${unsupported.message}`;
+      installStatus.set(`${unsupported.tech}: ${unsupported.message}`, 'error');
       return;
     }
     if (await hasStaticEntry(() => instance.fs.readFile('/index.html', 'utf-8'))) {
-      installStatus.textContent = 'No package.json — detected static site.';
+      installStatus.set('No package.json — detected static site.', 'done');
       await serveStatic(instance);
     } else {
-      installStatus.textContent = 'No package.json or index.html found — cannot preview this repo.';
+      installStatus.set('No package.json or index.html found — cannot preview this repo.', 'error');
     }
     return;
   }
@@ -110,7 +120,7 @@ async function mountRepo(instance: WebContainer, { owner, repo }: RepoParams): P
 
   const startScript = detectStartScript(sanitized);
   if (!startScript) {
-    installStatus.textContent = 'No recognized dev/start script in package.json.';
+    installStatus.set('No recognized dev/start script in package.json.', 'error');
     return;
   }
 
@@ -152,7 +162,7 @@ function appendTerminalOutput(element: HTMLPreElement, chunk: string): void {
 }
 
 async function runInstall(instance: WebContainer): Promise<boolean> {
-  installStatus.textContent = 'Running npm install...';
+  installStatus.set('Running npm install...', 'loading');
   const process = await instance.spawn('npm', ['install', '--legacy-peer-deps']);
   process.output.pipeTo(
     new WritableStream({
@@ -164,17 +174,17 @@ async function runInstall(instance: WebContainer): Promise<boolean> {
 
   const exitCode = await process.exit;
   if (exitCode !== 0) {
-    installStatus.textContent = `npm install failed (exit ${exitCode}).`;
+    installStatus.set(`npm install failed (exit ${exitCode}).`, 'error');
     return false;
   }
 
-  installStatus.textContent = 'npm install done.';
+  installStatus.set('npm install done.', 'done');
   return true;
 }
 
 async function startDevServer(instance: WebContainer, startScript: string): Promise<void> {
-  const devStatus = document.createElement('p');
-  app.append(devStatus);
+  const devStatus = createStatusLine();
+  app.append(devStatus.el);
 
   const devOutput = document.createElement('pre');
   app.append(devOutput);
@@ -183,11 +193,11 @@ async function startDevServer(instance: WebContainer, startScript: string): Prom
   preview.style.cssText = 'display:none; width:100%; height:80vh; border:1px solid #ccc;';
   app.append(preview);
 
-  devStatus.textContent = `Starting npm run ${startScript}...`;
+  devStatus.set(`Starting npm run ${startScript}...`, 'loading');
 
   // Register server-ready before spawning so we never miss the event.
   instance.on('server-ready', (_port, url) => {
-    devStatus.textContent = 'Server ready.';
+    devStatus.set('Server ready.', 'done');
     preview.src = url;
     preview.style.display = 'block';
   });
@@ -203,13 +213,13 @@ async function startDevServer(instance: WebContainer, startScript: string): Prom
 
   const exitCode = await process.exit;
   if (exitCode !== 0) {
-    devStatus.textContent = `npm run ${startScript} exited with code ${exitCode}.`;
+    devStatus.set(`npm run ${startScript} exited with code ${exitCode}.`, 'error');
   }
 }
 
 async function serveStatic(instance: WebContainer): Promise<void> {
-  const staticStatus = document.createElement('p');
-  app.append(staticStatus);
+  const staticStatus = createStatusLine();
+  app.append(staticStatus.el);
 
   const staticOutput = document.createElement('pre');
   app.append(staticOutput);
@@ -218,12 +228,12 @@ async function serveStatic(instance: WebContainer): Promise<void> {
   preview.style.cssText = 'display:none; width:100%; height:80vh; border:1px solid #ccc;';
   app.append(preview);
 
-  staticStatus.textContent = 'Starting static file server...';
+  staticStatus.set('Starting static file server...', 'loading');
 
   await instance.fs.writeFile('/stackyard-static-server.js', STATIC_SERVER_SCRIPT);
 
   instance.on('server-ready', (_port, url) => {
-    staticStatus.textContent = 'Server ready.';
+    staticStatus.set('Server ready.', 'done');
     preview.src = url;
     preview.style.display = 'block';
   });
@@ -239,7 +249,7 @@ async function serveStatic(instance: WebContainer): Promise<void> {
 
   const exitCode = await proc.exit;
   if (exitCode !== 0) {
-    staticStatus.textContent = `Static server exited with code ${exitCode}.`;
+    staticStatus.set(`Static server exited with code ${exitCode}.`, 'error');
   }
 }
 
