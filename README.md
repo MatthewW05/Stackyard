@@ -12,6 +12,12 @@ _TBD — filled in as the MVP core loop lands._
 
 _TBD — will cover supported browsers, supported repo types (JS/Node first), and known gaps._
 
+## Extension detection
+
+The hosted preview page only renders its working UI when it detects it was opened via the Stackyard extension: a content script sets a marker on the page at load, and the page waits briefly for it before falling back to an "install the extension" landing state.
+
+This is a UX nudge, not a security boundary — a visitor could still reach the page directly by other means. It becomes structurally reinforced once the Phase 2 message-relay architecture lands, since GitHub data will only be reachable through the extension at that point too.
+
 ## Credits
 
 Live previews are powered by [WebContainers](https://webcontainers.io/) (StackBlitz). Credit and links will be expanded here.
