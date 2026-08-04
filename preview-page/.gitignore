@@ -2,3 +2,6 @@ node_modules
 dist
 
 .vercel
+
+# Personal convenience script, not shared project source.
+redeploy.ps1
