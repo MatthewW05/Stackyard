@@ -28,3 +28,8 @@
     transform: rotate(360deg);
   }
 }
+
+.install-prompt {
+  font-family: sans-serif;
+  max-width: 32em;
+}
