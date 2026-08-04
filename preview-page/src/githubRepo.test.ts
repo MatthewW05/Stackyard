@@ -147,11 +147,10 @@ describe('fetchRepoFiles', () => {
     fetchMock.mockImplementation((url: string) => {
       if (url === 'https://api.github.com/repos/octocat/rate-limited') {
         return Promise.resolve(
-          jsonResponse(
-            { message: 'API rate limit exceeded' },
-            403,
-            { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(resetAt) },
-          ),
+          jsonResponse({ message: 'API rate limit exceeded' }, 403, {
+            'x-ratelimit-remaining': '0',
+            'x-ratelimit-reset': String(resetAt),
+          }),
         );
       }
       throw new Error(`Unexpected fetch: ${url}`);
