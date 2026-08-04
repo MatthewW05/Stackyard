@@ -1,5 +1,11 @@
 import { WebContainer } from '@webcontainer/api';
-import { fetchRepoFiles } from './githubRepo';
+import {
+  fetchRepoFiles,
+  RepoTooLargeError,
+  GitHubNotFoundError,
+  GitHubRateLimitError,
+  GitHubNetworkError,
+} from './githubRepo';
 import { buildFileSystemTree, type RepoFile } from './fileSystemTree';
 import { detectStartScript, sanitizePackageJson } from './devServer';
 import { hasStaticEntry, STATIC_SERVER_SCRIPT } from './staticServer';
@@ -75,6 +81,21 @@ async function initWebContainer() {
   }
 }
 
+// GitHub-specific error classes already carry a friendly, specific message -
+// showing them as-is avoids a redundant "Failed to fetch/mount repo:" prefix
+// on top of a message that already explains what went wrong.
+function describeMountError(error: unknown): string {
+  if (
+    error instanceof GitHubNotFoundError ||
+    error instanceof GitHubRateLimitError ||
+    error instanceof GitHubNetworkError ||
+    error instanceof RepoTooLargeError
+  ) {
+    return error.message;
+  }
+  return `Failed to fetch/mount repo: ${error instanceof Error ? error.message : String(error)}`;
+}
+
 async function mountRepo(instance: WebContainer, { owner, repo }: RepoParams): Promise<void> {
   mountStatus.set(`Fetching ${owner}/${repo} from GitHub...`, 'loading');
   const token = new URLSearchParams(location.search).get('token') ?? undefined;
@@ -88,10 +109,7 @@ async function mountRepo(instance: WebContainer, { owner, repo }: RepoParams): P
 
     mountStatus.set(`Mounted ${files.length} files.`, 'done');
   } catch (error) {
-    mountStatus.set(
-      `Failed to fetch/mount repo: ${error instanceof Error ? error.message : String(error)}`,
-      'error',
-    );
+    mountStatus.set(describeMountError(error), 'error');
     return;
   }
 
