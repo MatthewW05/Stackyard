@@ -133,7 +133,15 @@ async function mountRepo(instance: WebContainer, { owner, repo }: RepoParams): P
 
   const sanitized = sanitizePackageJson(packageJsonContent);
   if (sanitized !== packageJsonContent) {
-    await instance.fs.writeFile('/package.json', sanitized);
+    try {
+      await instance.fs.writeFile('/package.json', sanitized);
+    } catch (error) {
+      installStatus.set(
+        `Failed to write sanitized package.json: ${error instanceof Error ? error.message : String(error)}`,
+        'error',
+      );
+      return;
+    }
   }
 
   const startScript = detectStartScript(sanitized);
