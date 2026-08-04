@@ -181,18 +181,26 @@ function appendTerminalOutput(element: HTMLPreElement, chunk: string): void {
 
 async function runInstall(instance: WebContainer): Promise<boolean> {
   installStatus.set('Running npm install...', 'loading');
-  const process = await instance.spawn('npm', ['install', '--legacy-peer-deps']);
-  process.output.pipeTo(
-    new WritableStream({
-      write(chunk) {
-        appendTerminalOutput(installOutput, chunk);
-      },
-    }),
-  );
+  try {
+    const process = await instance.spawn('npm', ['install', '--legacy-peer-deps']);
+    process.output.pipeTo(
+      new WritableStream({
+        write(chunk) {
+          appendTerminalOutput(installOutput, chunk);
+        },
+      }),
+    );
 
-  const exitCode = await process.exit;
-  if (exitCode !== 0) {
-    installStatus.set(`npm install failed (exit ${exitCode}).`, 'error');
+    const exitCode = await process.exit;
+    if (exitCode !== 0) {
+      installStatus.set(`npm install failed (exit ${exitCode}).`, 'error');
+      return false;
+    }
+  } catch (error) {
+    installStatus.set(
+      `Failed to run npm install: ${error instanceof Error ? error.message : String(error)}`,
+      'error',
+    );
     return false;
   }
 
@@ -220,18 +228,25 @@ async function startDevServer(instance: WebContainer, startScript: string): Prom
     preview.style.display = 'block';
   });
 
-  const process = await instance.spawn('npm', ['run', startScript]);
-  process.output.pipeTo(
-    new WritableStream({
-      write(chunk) {
-        appendTerminalOutput(devOutput, chunk);
-      },
-    }),
-  );
+  try {
+    const process = await instance.spawn('npm', ['run', startScript]);
+    process.output.pipeTo(
+      new WritableStream({
+        write(chunk) {
+          appendTerminalOutput(devOutput, chunk);
+        },
+      }),
+    );
 
-  const exitCode = await process.exit;
-  if (exitCode !== 0) {
-    devStatus.set(`npm run ${startScript} exited with code ${exitCode}.`, 'error');
+    const exitCode = await process.exit;
+    if (exitCode !== 0) {
+      devStatus.set(`npm run ${startScript} exited with code ${exitCode}.`, 'error');
+    }
+  } catch (error) {
+    devStatus.set(
+      `Failed to start npm run ${startScript}: ${error instanceof Error ? error.message : String(error)}`,
+      'error',
+    );
   }
 }
 
@@ -248,26 +263,33 @@ async function serveStatic(instance: WebContainer): Promise<void> {
 
   staticStatus.set('Starting static file server...', 'loading');
 
-  await instance.fs.writeFile('/stackyard-static-server.js', STATIC_SERVER_SCRIPT);
-
   instance.on('server-ready', (_port, url) => {
     staticStatus.set('Server ready.', 'done');
     preview.src = url;
     preview.style.display = 'block';
   });
 
-  const proc = await instance.spawn('node', ['stackyard-static-server.js']);
-  proc.output.pipeTo(
-    new WritableStream({
-      write(chunk) {
-        appendTerminalOutput(staticOutput, chunk);
-      },
-    }),
-  );
+  try {
+    await instance.fs.writeFile('/stackyard-static-server.js', STATIC_SERVER_SCRIPT);
 
-  const exitCode = await proc.exit;
-  if (exitCode !== 0) {
-    staticStatus.set(`Static server exited with code ${exitCode}.`, 'error');
+    const proc = await instance.spawn('node', ['stackyard-static-server.js']);
+    proc.output.pipeTo(
+      new WritableStream({
+        write(chunk) {
+          appendTerminalOutput(staticOutput, chunk);
+        },
+      }),
+    );
+
+    const exitCode = await proc.exit;
+    if (exitCode !== 0) {
+      staticStatus.set(`Static server exited with code ${exitCode}.`, 'error');
+    }
+  } catch (error) {
+    staticStatus.set(
+      `Failed to start static file server: ${error instanceof Error ? error.message : String(error)}`,
+      'error',
+    );
   }
 }
 
