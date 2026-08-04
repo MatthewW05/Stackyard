@@ -11,6 +11,8 @@ import { detectStartScript, sanitizePackageJson } from './devServer';
 import { hasStaticEntry, STATIC_SERVER_SCRIPT } from './staticServer';
 import { detectUnsupportedTech } from './detectUnsupportedTech';
 import { createStatusLine } from './status';
+import { isExtensionMarkerPresent, waitForExtensionMarker } from './extensionGate';
+import { renderInstallPrompt } from './installPrompt';
 import './style.css';
 
 interface RepoParams {
@@ -28,277 +30,290 @@ export function getRepoParams(search: string): RepoParams | null {
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 
-const repoStatus = document.createElement('p');
-app.append(repoStatus);
-
-const params = getRepoParams(location.search);
-repoStatus.textContent = params
-  ? `Preview: ${params.owner}/${params.repo}`
-  : "Missing owner/repo query params. Open this page via the Stackyard extension's Preview button.";
-
-const bootStatus = createStatusLine();
-app.append(bootStatus.el);
-
-const mountStatus = createStatusLine();
-app.append(mountStatus.el);
-
-const installStatus = createStatusLine();
-app.append(installStatus.el);
-
-const installOutput = document.createElement('pre');
-app.append(installOutput);
-
-// WebContainer.boot() throws if called twice in the same page - cache the
-// promise so any future re-entry reuses the same instance instead of
-// re-booting. See WEBCONTAINER_SPIKE_NOTES.md.
-let bootPromise: Promise<WebContainer> | null = null;
-
-function bootWebContainer(): Promise<WebContainer> {
-  if (!bootPromise) bootPromise = WebContainer.boot();
-  return bootPromise;
-}
-
-async function initWebContainer() {
-  if (!crossOriginIsolated) {
-    bootStatus.set(
-      'Cannot boot WebContainer: this page is not cross-origin isolated ' +
-        '(crossOriginIsolated is false). Check that COOP/COEP headers are being served.',
-      'error',
-    );
+async function main(): Promise<void> {
+  const extensionDetected = await waitForExtensionMarker(isExtensionMarkerPresent);
+  if (!extensionDetected) {
+    renderInstallPrompt(app);
     return;
   }
 
-  bootStatus.set('Booting WebContainer...', 'loading');
-  try {
-    const instance = await bootWebContainer();
-    bootStatus.set('WebContainer ready.', 'done');
-    if (params) await mountRepo(instance, params);
-  } catch (error) {
-    bootStatus.set(
-      `Failed to boot WebContainer: ${error instanceof Error ? error.message : String(error)}`,
-      'error',
-    );
-  }
-}
+  const repoStatus = document.createElement('p');
+  app.append(repoStatus);
 
-// GitHub-specific error classes already carry a friendly, specific message -
-// showing them as-is avoids a redundant "Failed to fetch/mount repo:" prefix
-// on top of a message that already explains what went wrong.
-function describeMountError(error: unknown): string {
-  if (
-    error instanceof GitHubNotFoundError ||
-    error instanceof GitHubRateLimitError ||
-    error instanceof GitHubNetworkError ||
-    error instanceof RepoTooLargeError
-  ) {
-    return error.message;
-  }
-  return `Failed to fetch/mount repo: ${error instanceof Error ? error.message : String(error)}`;
-}
+  const params = getRepoParams(location.search);
+  repoStatus.textContent = params
+    ? `Preview: ${params.owner}/${params.repo}`
+    : "Missing owner/repo query params. Open this page via the Stackyard extension's Preview button.";
 
-async function mountRepo(instance: WebContainer, { owner, repo }: RepoParams): Promise<void> {
-  mountStatus.set(`Fetching ${owner}/${repo} from GitHub...`, 'loading');
-  const token = new URLSearchParams(location.search).get('token') ?? undefined;
-  let files: RepoFile[];
-  try {
-    files = await fetchRepoFiles(owner, repo, token);
-    mountStatus.set(`Mounting ${files.length} files...`, 'loading');
+  const bootStatus = createStatusLine();
+  app.append(bootStatus.el);
 
-    const tree = buildFileSystemTree(files);
-    await instance.mount(tree);
+  const mountStatus = createStatusLine();
+  app.append(mountStatus.el);
 
-    mountStatus.set(`Mounted ${files.length} files.`, 'done');
-  } catch (error) {
-    mountStatus.set(describeMountError(error), 'error');
-    return;
+  const installStatus = createStatusLine();
+  app.append(installStatus.el);
+
+  const installOutput = document.createElement('pre');
+  app.append(installOutput);
+
+  // WebContainer.boot() throws if called twice in the same page - cache the
+  // promise so any future re-entry reuses the same instance instead of
+  // re-booting. See WEBCONTAINER_SPIKE_NOTES.md.
+  let bootPromise: Promise<WebContainer> | null = null;
+
+  function bootWebContainer(): Promise<WebContainer> {
+    if (!bootPromise) bootPromise = WebContainer.boot();
+    return bootPromise;
   }
 
-  let packageJsonContent: string;
-  try {
-    packageJsonContent = await instance.fs.readFile('/package.json', 'utf-8');
-  } catch {
-    const unsupported = detectUnsupportedTech(files.map((f) => f.path));
-    if (unsupported) {
-      installStatus.set(`${unsupported.tech}: ${unsupported.message}`, 'error');
-      return;
-    }
-    if (await hasStaticEntry(() => instance.fs.readFile('/index.html', 'utf-8'))) {
-      installStatus.set('No package.json — detected static site.', 'done');
-      await serveStatic(instance);
-    } else {
-      installStatus.set('No package.json or index.html found — cannot preview this repo.', 'error');
-    }
-    return;
-  }
-
-  const sanitized = sanitizePackageJson(packageJsonContent);
-  if (sanitized !== packageJsonContent) {
-    try {
-      await instance.fs.writeFile('/package.json', sanitized);
-    } catch (error) {
-      installStatus.set(
-        `Failed to write sanitized package.json: ${error instanceof Error ? error.message : String(error)}`,
+  async function initWebContainer() {
+    if (!crossOriginIsolated) {
+      bootStatus.set(
+        'Cannot boot WebContainer: this page is not cross-origin isolated ' +
+          '(crossOriginIsolated is false). Check that COOP/COEP headers are being served.',
         'error',
       );
       return;
     }
-  }
 
-  const startScript = detectStartScript(sanitized);
-  if (!startScript) {
-    installStatus.set('No recognized dev/start script in package.json.', 'error');
-    return;
-  }
-
-  const installOk = await runInstall(instance);
-  if (!installOk) return;
-
-  await startDevServer(instance, startScript);
-}
-
-// Renders terminal output cleanly in a <pre>:
-// - \x1b[nG (cursor-to-col-1, used by npm's spinner) is converted to \r first
-//   so the overwrite logic below fires correctly.
-// - \r\n is treated as a plain newline (Windows line ending), not a chop.
-// - Bare \r overwrites the current line (carriage return semantics).
-// - All remaining ANSI escape sequences are stripped.
-function appendTerminalOutput(element: HTMLPreElement, chunk: string): void {
-  // eslint-disable-next-line no-control-regex
-  const withCR = chunk.replace(/\x1b\[\d*G/g, '\r');
-  // eslint-disable-next-line no-control-regex
-  const stripped = withCR.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '');
-
-  let text = element.textContent ?? '';
-  let i = 0;
-  while (i < stripped.length) {
-    const c = stripped[i];
-    if (c === '\r' && stripped[i + 1] === '\n') {
-      text += '\n';
-      i += 2;
-    } else if (c === '\r') {
-      const lastNl = text.lastIndexOf('\n');
-      text = text.slice(0, lastNl + 1);
-      i++;
-    } else {
-      text += c;
-      i++;
+    bootStatus.set('Booting WebContainer...', 'loading');
+    try {
+      const instance = await bootWebContainer();
+      bootStatus.set('WebContainer ready.', 'done');
+      if (params) await mountRepo(instance, params);
+    } catch (error) {
+      bootStatus.set(
+        `Failed to boot WebContainer: ${error instanceof Error ? error.message : String(error)}`,
+        'error',
+      );
     }
   }
-  element.textContent = text;
-}
 
-async function runInstall(instance: WebContainer): Promise<boolean> {
-  installStatus.set('Running npm install...', 'loading');
-  try {
-    const process = await instance.spawn('npm', ['install', '--legacy-peer-deps']);
-    process.output.pipeTo(
-      new WritableStream({
-        write(chunk) {
-          appendTerminalOutput(installOutput, chunk);
-        },
-      }),
-    );
+  // GitHub-specific error classes already carry a friendly, specific message -
+  // showing them as-is avoids a redundant "Failed to fetch/mount repo:" prefix
+  // on top of a message that already explains what went wrong.
+  function describeMountError(error: unknown): string {
+    if (
+      error instanceof GitHubNotFoundError ||
+      error instanceof GitHubRateLimitError ||
+      error instanceof GitHubNetworkError ||
+      error instanceof RepoTooLargeError
+    ) {
+      return error.message;
+    }
+    return `Failed to fetch/mount repo: ${error instanceof Error ? error.message : String(error)}`;
+  }
 
-    const exitCode = await process.exit;
-    if (exitCode !== 0) {
-      installStatus.set(`npm install failed (exit ${exitCode}).`, 'error');
+  async function mountRepo(instance: WebContainer, { owner, repo }: RepoParams): Promise<void> {
+    mountStatus.set(`Fetching ${owner}/${repo} from GitHub...`, 'loading');
+    const token = new URLSearchParams(location.search).get('token') ?? undefined;
+    let files: RepoFile[];
+    try {
+      files = await fetchRepoFiles(owner, repo, token);
+      mountStatus.set(`Mounting ${files.length} files...`, 'loading');
+
+      const tree = buildFileSystemTree(files);
+      await instance.mount(tree);
+
+      mountStatus.set(`Mounted ${files.length} files.`, 'done');
+    } catch (error) {
+      mountStatus.set(describeMountError(error), 'error');
+      return;
+    }
+
+    let packageJsonContent: string;
+    try {
+      packageJsonContent = await instance.fs.readFile('/package.json', 'utf-8');
+    } catch {
+      const unsupported = detectUnsupportedTech(files.map((f) => f.path));
+      if (unsupported) {
+        installStatus.set(`${unsupported.tech}: ${unsupported.message}`, 'error');
+        return;
+      }
+      if (await hasStaticEntry(() => instance.fs.readFile('/index.html', 'utf-8'))) {
+        installStatus.set('No package.json — detected static site.', 'done');
+        await serveStatic(instance);
+      } else {
+        installStatus.set(
+          'No package.json or index.html found — cannot preview this repo.',
+          'error',
+        );
+      }
+      return;
+    }
+
+    const sanitized = sanitizePackageJson(packageJsonContent);
+    if (sanitized !== packageJsonContent) {
+      try {
+        await instance.fs.writeFile('/package.json', sanitized);
+      } catch (error) {
+        installStatus.set(
+          `Failed to write sanitized package.json: ${error instanceof Error ? error.message : String(error)}`,
+          'error',
+        );
+        return;
+      }
+    }
+
+    const startScript = detectStartScript(sanitized);
+    if (!startScript) {
+      installStatus.set('No recognized dev/start script in package.json.', 'error');
+      return;
+    }
+
+    const installOk = await runInstall(instance);
+    if (!installOk) return;
+
+    await startDevServer(instance, startScript);
+  }
+
+  // Renders terminal output cleanly in a <pre>:
+  // - \x1b[nG (cursor-to-col-1, used by npm's spinner) is converted to \r first
+  //   so the overwrite logic below fires correctly.
+  // - \r\n is treated as a plain newline (Windows line ending), not a chop.
+  // - Bare \r overwrites the current line (carriage return semantics).
+  // - All remaining ANSI escape sequences are stripped.
+  function appendTerminalOutput(element: HTMLPreElement, chunk: string): void {
+    // eslint-disable-next-line no-control-regex
+    const withCR = chunk.replace(/\x1b\[\d*G/g, '\r');
+    // eslint-disable-next-line no-control-regex
+    const stripped = withCR.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '');
+
+    let text = element.textContent ?? '';
+    let i = 0;
+    while (i < stripped.length) {
+      const c = stripped[i];
+      if (c === '\r' && stripped[i + 1] === '\n') {
+        text += '\n';
+        i += 2;
+      } else if (c === '\r') {
+        const lastNl = text.lastIndexOf('\n');
+        text = text.slice(0, lastNl + 1);
+        i++;
+      } else {
+        text += c;
+        i++;
+      }
+    }
+    element.textContent = text;
+  }
+
+  async function runInstall(instance: WebContainer): Promise<boolean> {
+    installStatus.set('Running npm install...', 'loading');
+    try {
+      const process = await instance.spawn('npm', ['install', '--legacy-peer-deps']);
+      process.output.pipeTo(
+        new WritableStream({
+          write(chunk) {
+            appendTerminalOutput(installOutput, chunk);
+          },
+        }),
+      );
+
+      const exitCode = await process.exit;
+      if (exitCode !== 0) {
+        installStatus.set(`npm install failed (exit ${exitCode}).`, 'error');
+        return false;
+      }
+    } catch (error) {
+      installStatus.set(
+        `Failed to run npm install: ${error instanceof Error ? error.message : String(error)}`,
+        'error',
+      );
       return false;
     }
-  } catch (error) {
-    installStatus.set(
-      `Failed to run npm install: ${error instanceof Error ? error.message : String(error)}`,
-      'error',
-    );
-    return false;
+
+    installStatus.set('npm install done.', 'done');
+    return true;
   }
 
-  installStatus.set('npm install done.', 'done');
-  return true;
-}
+  async function startDevServer(instance: WebContainer, startScript: string): Promise<void> {
+    const devStatus = createStatusLine();
+    app.append(devStatus.el);
 
-async function startDevServer(instance: WebContainer, startScript: string): Promise<void> {
-  const devStatus = createStatusLine();
-  app.append(devStatus.el);
+    const devOutput = document.createElement('pre');
+    app.append(devOutput);
 
-  const devOutput = document.createElement('pre');
-  app.append(devOutput);
+    const preview = document.createElement('iframe');
+    preview.style.cssText = 'display:none; width:100%; height:80vh; border:1px solid #ccc;';
+    app.append(preview);
 
-  const preview = document.createElement('iframe');
-  preview.style.cssText = 'display:none; width:100%; height:80vh; border:1px solid #ccc;';
-  app.append(preview);
+    devStatus.set(`Starting npm run ${startScript}...`, 'loading');
 
-  devStatus.set(`Starting npm run ${startScript}...`, 'loading');
+    // Register server-ready before spawning so we never miss the event.
+    instance.on('server-ready', (_port, url) => {
+      devStatus.set('Server ready.', 'done');
+      preview.src = url;
+      preview.style.display = 'block';
+    });
 
-  // Register server-ready before spawning so we never miss the event.
-  instance.on('server-ready', (_port, url) => {
-    devStatus.set('Server ready.', 'done');
-    preview.src = url;
-    preview.style.display = 'block';
-  });
+    try {
+      const process = await instance.spawn('npm', ['run', startScript]);
+      process.output.pipeTo(
+        new WritableStream({
+          write(chunk) {
+            appendTerminalOutput(devOutput, chunk);
+          },
+        }),
+      );
 
-  try {
-    const process = await instance.spawn('npm', ['run', startScript]);
-    process.output.pipeTo(
-      new WritableStream({
-        write(chunk) {
-          appendTerminalOutput(devOutput, chunk);
-        },
-      }),
-    );
-
-    const exitCode = await process.exit;
-    if (exitCode !== 0) {
-      devStatus.set(`npm run ${startScript} exited with code ${exitCode}.`, 'error');
+      const exitCode = await process.exit;
+      if (exitCode !== 0) {
+        devStatus.set(`npm run ${startScript} exited with code ${exitCode}.`, 'error');
+      }
+    } catch (error) {
+      devStatus.set(
+        `Failed to start npm run ${startScript}: ${error instanceof Error ? error.message : String(error)}`,
+        'error',
+      );
     }
-  } catch (error) {
-    devStatus.set(
-      `Failed to start npm run ${startScript}: ${error instanceof Error ? error.message : String(error)}`,
-      'error',
-    );
   }
-}
 
-async function serveStatic(instance: WebContainer): Promise<void> {
-  const staticStatus = createStatusLine();
-  app.append(staticStatus.el);
+  async function serveStatic(instance: WebContainer): Promise<void> {
+    const staticStatus = createStatusLine();
+    app.append(staticStatus.el);
 
-  const staticOutput = document.createElement('pre');
-  app.append(staticOutput);
+    const staticOutput = document.createElement('pre');
+    app.append(staticOutput);
 
-  const preview = document.createElement('iframe');
-  preview.style.cssText = 'display:none; width:100%; height:80vh; border:1px solid #ccc;';
-  app.append(preview);
+    const preview = document.createElement('iframe');
+    preview.style.cssText = 'display:none; width:100%; height:80vh; border:1px solid #ccc;';
+    app.append(preview);
 
-  staticStatus.set('Starting static file server...', 'loading');
+    staticStatus.set('Starting static file server...', 'loading');
 
-  instance.on('server-ready', (_port, url) => {
-    staticStatus.set('Server ready.', 'done');
-    preview.src = url;
-    preview.style.display = 'block';
-  });
+    instance.on('server-ready', (_port, url) => {
+      staticStatus.set('Server ready.', 'done');
+      preview.src = url;
+      preview.style.display = 'block';
+    });
 
-  try {
-    await instance.fs.writeFile('/stackyard-static-server.js', STATIC_SERVER_SCRIPT);
+    try {
+      await instance.fs.writeFile('/stackyard-static-server.js', STATIC_SERVER_SCRIPT);
 
-    const proc = await instance.spawn('node', ['stackyard-static-server.js']);
-    proc.output.pipeTo(
-      new WritableStream({
-        write(chunk) {
-          appendTerminalOutput(staticOutput, chunk);
-        },
-      }),
-    );
+      const proc = await instance.spawn('node', ['stackyard-static-server.js']);
+      proc.output.pipeTo(
+        new WritableStream({
+          write(chunk) {
+            appendTerminalOutput(staticOutput, chunk);
+          },
+        }),
+      );
 
-    const exitCode = await proc.exit;
-    if (exitCode !== 0) {
-      staticStatus.set(`Static server exited with code ${exitCode}.`, 'error');
+      const exitCode = await proc.exit;
+      if (exitCode !== 0) {
+        staticStatus.set(`Static server exited with code ${exitCode}.`, 'error');
+      }
+    } catch (error) {
+      staticStatus.set(
+        `Failed to start static file server: ${error instanceof Error ? error.message : String(error)}`,
+        'error',
+      );
     }
-  } catch (error) {
-    staticStatus.set(
-      `Failed to start static file server: ${error instanceof Error ? error.message : String(error)}`,
-      'error',
-    );
   }
+
+  void initWebContainer();
 }
 
-void initWebContainer();
+void main();
