@@ -1,0 +1,30 @@
+.status-line {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  font-family: sans-serif;
+}
+
+.status-spinner {
+  display: none;
+  width: 0.8em;
+  height: 0.8em;
+  border: 2px solid #ccc;
+  border-top-color: #555;
+  border-radius: 50%;
+  animation: status-spin 0.6s linear infinite;
+}
+
+.status-line[data-state='loading'] .status-spinner {
+  display: inline-block;
+}
+
+.status-line[data-state='error'] {
+  color: #b00020;
+}
+
+@keyframes status-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

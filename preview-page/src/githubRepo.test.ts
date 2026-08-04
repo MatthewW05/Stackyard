@@ -1,12 +1,20 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { fetchRepoFiles, RepoTooLargeError } from './githubRepo';
+import {
+  fetchRepoFiles,
+  RepoTooLargeError,
+  GitHubNotFoundError,
+  GitHubRateLimitError,
+  GitHubNetworkError,
+} from './githubRepo';
 
-function jsonResponse(body: unknown, status = 200): Response {
+function jsonResponse(body: unknown, status = 200, headers: Record<string, string> = {}): Response {
+  const lower = Object.fromEntries(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v]));
   return {
     ok: status >= 200 && status < 300,
     status,
+    headers: { get: (name: string) => lower[name.toLowerCase()] ?? null },
     json: () => Promise.resolve(body),
-  } as Response;
+  } as unknown as Response;
 }
 
 function base64Of(text: string): string {
@@ -122,7 +130,7 @@ describe('fetchRepoFiles', () => {
     expect(maxInFlight).toBeLessThanOrEqual(MAX_ALLOWED_CONCURRENCY);
   });
 
-  it('throws a clear error when a GitHub request fails', async () => {
+  it('throws GitHubNotFoundError with a friendly message on a 404', async () => {
     fetchMock.mockImplementation((url: string) => {
       if (url === 'https://api.github.com/repos/octocat/missing') {
         return Promise.resolve(jsonResponse({ message: 'Not Found' }, 404));
@@ -130,6 +138,52 @@ describe('fetchRepoFiles', () => {
       throw new Error(`Unexpected fetch: ${url}`);
     });
 
-    await expect(fetchRepoFiles('octocat', 'missing')).rejects.toThrow(/404/);
+    await expect(fetchRepoFiles('octocat', 'missing')).rejects.toThrow(GitHubNotFoundError);
+    await expect(fetchRepoFiles('octocat', 'missing')).rejects.toThrow(/private/);
+  });
+
+  it('throws GitHubRateLimitError when the primary rate limit is exhausted', async () => {
+    const resetAt = Math.floor(Date.now() / 1000) + 120;
+    fetchMock.mockImplementation((url: string) => {
+      if (url === 'https://api.github.com/repos/octocat/rate-limited') {
+        return Promise.resolve(
+          jsonResponse({ message: 'API rate limit exceeded' }, 403, {
+            'x-ratelimit-remaining': '0',
+            'x-ratelimit-reset': String(resetAt),
+          }),
+        );
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    await expect(fetchRepoFiles('octocat', 'rate-limited')).rejects.toThrow(GitHubRateLimitError);
+    await expect(fetchRepoFiles('octocat', 'rate-limited')).rejects.toThrow(/rate limit/);
+  });
+
+  it('does not treat a bare 403 (no rate-limit header) as a rate limit', async () => {
+    fetchMock.mockImplementation((url: string) => {
+      if (url === 'https://api.github.com/repos/octocat/blocked') {
+        return Promise.resolve(jsonResponse({ message: 'Blocked' }, 403));
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    let caught: unknown;
+    try {
+      await fetchRepoFiles('octocat', 'blocked');
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).not.toBeInstanceOf(GitHubRateLimitError);
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).toMatch(/403/);
+  });
+
+  it('throws GitHubNetworkError when fetch itself fails (e.g. offline)', async () => {
+    fetchMock.mockImplementation(() => Promise.reject(new TypeError('Failed to fetch')));
+
+    await expect(fetchRepoFiles('octocat', 'hello-world')).rejects.toThrow(GitHubNetworkError);
+    await expect(fetchRepoFiles('octocat', 'hello-world')).rejects.toThrow(/Network error/);
   });
 });

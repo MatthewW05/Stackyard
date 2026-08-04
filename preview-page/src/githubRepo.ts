@@ -12,6 +12,38 @@ export class RepoTooLargeError extends Error {
   }
 }
 
+export class GitHubNotFoundError extends Error {
+  constructor(path: string) {
+    super(
+      `GitHub couldn't find ${path} — double check the owner/repo spelling, or the repo may be ` +
+        'private (private repos need sign-in, which is not supported yet).',
+    );
+    this.name = 'GitHubNotFoundError';
+  }
+}
+
+export class GitHubRateLimitError extends Error {
+  constructor(resetHeader: string | null) {
+    const resetAt = resetHeader ? new Date(Number(resetHeader) * 1000) : null;
+    const when =
+      resetAt && !Number.isNaN(resetAt.getTime())
+        ? ` It resets at ${resetAt.toLocaleTimeString()}.`
+        : ' Try again in a few minutes.';
+    super(`GitHub API rate limit exceeded (60 requests/hour when not signed in).${when}`);
+    this.name = 'GitHubRateLimitError';
+  }
+}
+
+export class GitHubNetworkError extends Error {
+  constructor(cause: unknown) {
+    super(
+      'Network error while contacting GitHub — check your internet connection and try again.' +
+        ` (${cause instanceof Error ? cause.message : String(cause)})`,
+    );
+    this.name = 'GitHubNetworkError';
+  }
+}
+
 interface GitHubTreeEntry {
   path: string;
   type: 'blob' | 'tree' | 'commit';
@@ -26,8 +58,27 @@ interface GitHubTreeResponse {
 async function githubFetch(path: string, token?: string): Promise<Response> {
   const headers: Record<string, string> = { Accept: 'application/vnd.github+json' };
   if (token) headers['Authorization'] = `Bearer ${token}`;
-  const response = await fetch(`${GITHUB_API}${path}`, { headers });
+
+  let response: Response;
+  try {
+    response = await fetch(`${GITHUB_API}${path}`, { headers });
+  } catch (cause) {
+    throw new GitHubNetworkError(cause);
+  }
+
   if (!response.ok) {
+    if (response.status === 404) {
+      throw new GitHubNotFoundError(path);
+    }
+    // GitHub signals the primary rate limit via a 403/429 with this header
+    // set to 0 - a bare 403 can also mean something unrelated (e.g. access
+    // blocked), so only treat it as a rate limit when the header confirms it.
+    if (
+      (response.status === 403 || response.status === 429) &&
+      response.headers.get('x-ratelimit-remaining') === '0'
+    ) {
+      throw new GitHubRateLimitError(response.headers.get('x-ratelimit-reset'));
+    }
     throw new Error(`GitHub API request failed (${response.status}): ${path}`);
   }
   return response;
