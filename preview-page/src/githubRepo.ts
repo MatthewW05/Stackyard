@@ -1,106 +1,41 @@
+import { sendBridgeRequest } from './bridge';
 import type { RepoFile } from './fileSystemTree';
 
-const GITHUB_API = 'https://api.github.com';
+// The tree walk, pagination, and blob fetching itself now happen in the
+// extension's background script (utils/githubRepo.ts there) - this page
+// never talks to GitHub directly, per Phase 2 of the roadmap. See
+// refactor/route-github-fetch-through-relay.
+const GITHUB_FETCH_TIMEOUT_MS = 60_000;
 
-export class RepoTooLargeError extends Error {
-  constructor(owner: string, repo: string) {
-    super(
-      `${owner}/${repo} is too large to preview: GitHub truncated the file tree ` +
-        "(repos over ~100,000 files or a 7MB tree aren't supported yet).",
-    );
-    this.name = 'RepoTooLargeError';
-  }
-}
-
-export class GitHubNotFoundError extends Error {
-  constructor(path: string) {
-    super(
-      `GitHub couldn't find ${path} — double check the owner/repo spelling, or the repo may be ` +
-        'private (private repos need sign-in, which is not supported yet).',
-    );
-    this.name = 'GitHubNotFoundError';
-  }
-}
-
-export class GitHubRateLimitError extends Error {
-  constructor(resetHeader: string | null) {
-    const resetAt = resetHeader ? new Date(Number(resetHeader) * 1000) : null;
-    const when =
-      resetAt && !Number.isNaN(resetAt.getTime())
-        ? ` It resets at ${resetAt.toLocaleTimeString()}.`
-        : ' Try again in a few minutes.';
-    super(`GitHub API rate limit exceeded (60 requests/hour when not signed in).${when}`);
-    this.name = 'GitHubRateLimitError';
-  }
-}
-
-export class GitHubNetworkError extends Error {
-  constructor(cause: unknown) {
-    super(
-      'Network error while contacting GitHub — check your internet connection and try again.' +
-        ` (${cause instanceof Error ? cause.message : String(cause)})`,
-    );
-    this.name = 'GitHubNetworkError';
-  }
-}
-
-interface GitHubTreeEntry {
+// Mirrors `RawRepoFile` from the extension's utils/githubRepo.ts. Content
+// stays base64 across the relay - browser.runtime.sendMessage only reliably
+// carries JSON-safe values, unlike window.postMessage - and is decoded to
+// bytes here instead.
+interface RawRepoFile {
   path: string;
-  type: 'blob' | 'tree' | 'commit';
-  sha: string;
+  content: string;
 }
 
-interface GitHubTreeResponse {
-  tree: GitHubTreeEntry[];
-  truncated: boolean;
-}
+// Error `name`s the extension's github:fetch-repo handler can report (see
+// utils/githubRepo.ts there) - used to tell an already-friendly GitHub
+// error apart from an unexpected one after it's crossed the relay.
+const RELAYED_GITHUB_ERROR_NAMES = new Set([
+  'GitHubNotFoundError',
+  'GitHubRateLimitError',
+  'GitHubNetworkError',
+  'RepoTooLargeError',
+]);
 
-async function githubFetch(path: string, token?: string): Promise<Response> {
-  const headers: Record<string, string> = { Accept: 'application/vnd.github+json' };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-
-  let response: Response;
-  try {
-    response = await fetch(`${GITHUB_API}${path}`, { headers });
-  } catch (cause) {
-    throw new GitHubNetworkError(cause);
+/**
+ * A GitHub-fetch failure relayed from the extension's background script.
+ * Its message is already friendly and specific (e.g. "repo is too large to
+ * preview...") - display it as-is, unlike an unexpected error.
+ */
+export class GitHubFetchError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'GitHubFetchError';
   }
-
-  if (!response.ok) {
-    if (response.status === 404) {
-      throw new GitHubNotFoundError(path);
-    }
-    // GitHub signals the primary rate limit via a 403/429 with this header
-    // set to 0 - a bare 403 can also mean something unrelated (e.g. access
-    // blocked), so only treat it as a rate limit when the header confirms it.
-    if (
-      (response.status === 403 || response.status === 429) &&
-      response.headers.get('x-ratelimit-remaining') === '0'
-    ) {
-      throw new GitHubRateLimitError(response.headers.get('x-ratelimit-reset'));
-    }
-    throw new Error(`GitHub API request failed (${response.status}): ${path}`);
-  }
-  return response;
-}
-
-async function getDefaultBranch(owner: string, repo: string, token?: string): Promise<string> {
-  const response = await githubFetch(`/repos/${owner}/${repo}`, token);
-  const data = (await response.json()) as { default_branch: string };
-  return data.default_branch;
-}
-
-async function getTree(
-  owner: string,
-  repo: string,
-  branch: string,
-  token?: string,
-): Promise<GitHubTreeResponse> {
-  const response = await githubFetch(
-    `/repos/${owner}/${repo}/git/trees/${encodeURIComponent(branch)}?recursive=1`,
-    token,
-  );
-  return (await response.json()) as GitHubTreeResponse;
 }
 
 function base64ToBytes(base64: string): Uint8Array {
@@ -112,65 +47,32 @@ function base64ToBytes(base64: string): Uint8Array {
   return bytes;
 }
 
-async function getBlobContents(
-  owner: string,
-  repo: string,
-  sha: string,
-  token?: string,
-): Promise<Uint8Array> {
-  const response = await githubFetch(`/repos/${owner}/${repo}/git/blobs/${sha}`, token);
-  const data = (await response.json()) as { content: string; encoding: string };
-  if (data.encoding !== 'base64') {
-    throw new Error(`Unexpected blob encoding "${data.encoding}" for blob ${sha}`);
-  }
-  return base64ToBytes(data.content);
-}
-
-// GitHub's unauthenticated API applies a secondary "abuse detection" rate
-// limit to bursts of concurrent requests, independent of the 60/hr quota -
-// firing one request per file via Promise.all gets 403s on real repos with
-// more than a handful of files. Capping concurrency avoids tripping it.
-const BLOB_FETCH_CONCURRENCY = 6;
-
-async function mapWithConcurrency<T, R>(
-  items: T[],
-  limit: number,
-  fn: (item: T) => Promise<R>,
-): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let nextIndex = 0;
-
-  async function worker() {
-    while (nextIndex < items.length) {
-      const index = nextIndex++;
-      results[index] = await fn(items[index]);
-    }
-  }
-
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-  return results;
-}
-
 /**
- * Fetches every file in a public GitHub repo's default branch and returns
- * them as a flat list ready for `buildFileSystemTree`. Throws
- * `RepoTooLargeError` if GitHub truncates the tree response.
+ * Fetches every file in a public GitHub repo's default branch via the
+ * extension's message-bridge relay and returns them ready for
+ * `buildFileSystemTree`. Rejects with `GitHubFetchError` for a friendly,
+ * already-classified GitHub failure (not found, rate limited, etc.), or the
+ * bridge's own error (e.g. a timeout, most likely meaning the Stackyard
+ * extension isn't installed) otherwise.
  */
 export async function fetchRepoFiles(
   owner: string,
   repo: string,
   token?: string,
 ): Promise<RepoFile[]> {
-  const branch = await getDefaultBranch(owner, repo, token);
-  const { tree, truncated } = await getTree(owner, repo, branch, token);
-  if (truncated) {
-    throw new RepoTooLargeError(owner, repo);
+  let files: RawRepoFile[];
+  try {
+    files = await sendBridgeRequest<RawRepoFile[]>(
+      'github:fetch-repo',
+      { owner, repo, token },
+      GITHUB_FETCH_TIMEOUT_MS,
+    );
+  } catch (error) {
+    if (error instanceof Error && RELAYED_GITHUB_ERROR_NAMES.has(error.name)) {
+      throw new GitHubFetchError(error.message);
+    }
+    throw error;
   }
 
-  const blobEntries = tree.filter((entry) => entry.type === 'blob');
-  const contents = await mapWithConcurrency(blobEntries, BLOB_FETCH_CONCURRENCY, (entry) =>
-    getBlobContents(owner, repo, entry.sha, token),
-  );
-
-  return blobEntries.map((entry, i) => ({ path: entry.path, contents: contents[i] }));
+  return files.map((f) => ({ path: f.path, contents: base64ToBytes(f.content) }));
 }

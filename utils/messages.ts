@@ -17,7 +17,12 @@ export interface BridgeRequest {
   payload?: unknown;
 }
 
-export type BridgeResult<T = unknown> = { ok: true; payload: T } | { ok: false; error: string };
+// `name` mirrors JS's `Error.name` (e.g. "GitHubNotFoundError") so a caller
+// that cares can tell a handler's own typed errors apart from an unexpected
+// failure, without the bridge contract needing to know what any specific
+// handler's error types are.
+export type BridgeResult<T = unknown> =
+  { ok: true; payload: T } | { ok: false; error: string; name?: string };
 
 // Envelope for the page -> content script leg, sent via window.postMessage.
 // `source` lets the content script's listener tell this apart from its own

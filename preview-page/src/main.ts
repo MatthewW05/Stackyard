@@ -1,11 +1,5 @@
 import { WebContainer } from '@webcontainer/api';
-import {
-  fetchRepoFiles,
-  RepoTooLargeError,
-  GitHubNotFoundError,
-  GitHubRateLimitError,
-  GitHubNetworkError,
-} from './githubRepo';
+import { fetchRepoFiles, GitHubFetchError } from './githubRepo';
 import { buildFileSystemTree, type RepoFile } from './fileSystemTree';
 import { detectStartScript, sanitizePackageJson } from './devServer';
 import { hasStaticEntry, STATIC_SERVER_SCRIPT } from './staticServer';
@@ -94,12 +88,7 @@ async function main(): Promise<void> {
   // showing them as-is avoids a redundant "Failed to fetch/mount repo:" prefix
   // on top of a message that already explains what went wrong.
   function describeMountError(error: unknown): string {
-    if (
-      error instanceof GitHubNotFoundError ||
-      error instanceof GitHubRateLimitError ||
-      error instanceof GitHubNetworkError ||
-      error instanceof RepoTooLargeError
-    ) {
+    if (error instanceof GitHubFetchError) {
       return error.message;
     }
     return `Failed to fetch/mount repo: ${error instanceof Error ? error.message : String(error)}`;

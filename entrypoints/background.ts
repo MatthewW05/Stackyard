@@ -4,14 +4,37 @@ import {
   type BridgeRequest,
   type BridgeResult,
 } from '@/utils/messages';
+import { fetchRepoFiles } from '@/utils/githubRepo';
 
 type BridgeHandler = (payload: unknown) => Promise<unknown>;
 
-// One handler per `type`. GitHub fetches and the later AI fallback call
-// register here too - the content-script relay and this dispatch loop don't
-// change to support them (see roadmap Phase 2).
+interface GitHubFetchRepoPayload {
+  owner: string;
+  repo: string;
+  token?: string;
+}
+
+function isGitHubFetchRepoPayload(payload: unknown): payload is GitHubFetchRepoPayload {
+  if (!payload || typeof payload !== 'object') return false;
+  const { owner, repo, token } = payload as Record<string, unknown>;
+  return (
+    typeof owner === 'string' &&
+    typeof repo === 'string' &&
+    (token === undefined || typeof token === 'string')
+  );
+}
+
+// One handler per `type`. The later AI fallback call registers here too -
+// the content-script relay and this dispatch loop don't change to support
+// it (see roadmap Phase 2).
 const bridgeHandlers: Record<string, BridgeHandler> = {
   ping: async () => 'pong',
+  'github:fetch-repo': async (payload) => {
+    if (!isGitHubFetchRepoPayload(payload)) {
+      throw new Error('github:fetch-repo requires an { owner, repo, token? } payload');
+    }
+    return fetchRepoFiles(payload.owner, payload.repo, payload.token);
+  },
 };
 
 async function dispatchBridgeRequest(message: BridgeRequest): Promise<BridgeResult> {
@@ -23,7 +46,11 @@ async function dispatchBridgeRequest(message: BridgeRequest): Promise<BridgeResu
   try {
     return { ok: true, payload: await handler(message.payload) };
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+      name: error instanceof Error ? error.name : undefined,
+    };
   }
 }
 
