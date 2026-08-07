@@ -14,7 +14,7 @@ interface SentRequest {
 
 function replyWith(
   requestId: string,
-  result: { ok: true; payload: unknown } | { ok: false; error: string },
+  result: { ok: true; payload: unknown } | { ok: false; error: string; name?: string },
   origin = window.location.origin,
 ): void {
   window.dispatchEvent(
@@ -71,6 +71,17 @@ describe('sendBridgeRequest', () => {
     replyWith(requestId, { ok: false, error: 'boom' });
 
     await expect(promise).rejects.toThrow('boom');
+  });
+
+  it('rejects with an Error whose name is set from a named failure reply', async () => {
+    const promise = sendBridgeRequest('ping');
+    const { requestId } = lastRequest();
+
+    replyWith(requestId, { ok: false, error: 'not found', name: 'GitHubNotFoundError' });
+
+    await expect(promise).rejects.toThrow(
+      expect.objectContaining({ name: 'GitHubNotFoundError', message: 'not found' }),
+    );
   });
 
   it('ignores a reply for a different requestId', async () => {

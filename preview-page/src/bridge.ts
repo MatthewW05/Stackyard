@@ -9,7 +9,12 @@ const CONTENT_SCRIPT_BRIDGE_SOURCE = 'stackyard-content-script';
 
 const DEFAULT_TIMEOUT_MS = 5000;
 
-export type BridgeResult<T = unknown> = { ok: true; payload: T } | { ok: false; error: string };
+// `name` mirrors JS's `Error.name` (e.g. "GitHubNotFoundError") so a caller
+// that cares can tell a handler's own typed errors apart from an unexpected
+// failure. Keep in sync with utils/messages.ts on the extension side.
+export type BridgeResult<T = unknown> =
+  | { ok: true; payload: T }
+  | { ok: false; error: string; name?: string };
 
 interface ContentToPageMessage {
   source: typeof CONTENT_SCRIPT_BRIDGE_SOURCE;
@@ -49,8 +54,13 @@ export function sendBridgeRequest<T = unknown>(
 
       cleanup();
       const result = data.result as BridgeResult<T>;
-      if (result.ok) resolve(result.payload);
-      else reject(new Error(result.error));
+      if (result.ok) {
+        resolve(result.payload);
+      } else {
+        const error = new Error(result.error);
+        if (result.name) error.name = result.name;
+        reject(error);
+      }
     }
 
     function cleanup(): void {
