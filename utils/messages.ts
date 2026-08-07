@@ -22,8 +22,7 @@ export interface BridgeRequest {
 // failure, without the bridge contract needing to know what any specific
 // handler's error types are.
 export type BridgeResult<T = unknown> =
-  | { ok: true; payload: T }
-  | { ok: false; error: string; name?: string };
+  { ok: true; payload: T } | { ok: false; error: string; name?: string };
 
 // Envelope for the page -> content script leg, sent via window.postMessage.
 // `source` lets the content script's listener tell this apart from its own

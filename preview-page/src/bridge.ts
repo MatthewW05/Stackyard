@@ -13,8 +13,7 @@ const DEFAULT_TIMEOUT_MS = 5000;
 // that cares can tell a handler's own typed errors apart from an unexpected
 // failure. Keep in sync with utils/messages.ts on the extension side.
 export type BridgeResult<T = unknown> =
-  | { ok: true; payload: T }
-  | { ok: false; error: string; name?: string };
+  { ok: true; payload: T } | { ok: false; error: string; name?: string };
 
 interface ContentToPageMessage {
   source: typeof CONTENT_SCRIPT_BRIDGE_SOURCE;
