@@ -7,7 +7,7 @@ const PREFERRED_SCRIPTS = ['dev', 'start', 'serve'] as const;
  * the content can't be parsed.
  */
 // Returns the major version of the `next` package, or null if not present /
-// not parseable. Used to gate --no-turbopack injection.
+// not parseable. Used to gate --webpack injection.
 function getNextMajorVersion(pkg: Record<string, unknown>): number | null {
   const deps = {
     ...((pkg.dependencies as Record<string, string> | undefined) ?? {}),
@@ -32,11 +32,13 @@ export function sanitizePackageJson(content: string): string {
   const scripts = pkg.scripts;
   if (typeof scripts !== 'object' || scripts === null) return content;
 
-  // --no-turbopack is only valid for Next.js 14–15.
-  // 16+ removed the flag (Turbopack is mandatory); <14 didn't have Turbopack.
-  // Unknown versions are left alone.
+  // Turbopack became the default bundler for `next dev` in v16 - before that
+  // it was opt-in via --turbopack/--turbo, so plain `next dev` already ran on
+  // webpack and needs no help. There has never been a --no-turbopack flag;
+  // --webpack is the real (and, as of v16, still supported) opt-out.
+  // https://nextjs.org/docs/app/api-reference/turbopack#version-changes
   const nextMajor = getNextMajorVersion(pkg);
-  const canDisableTurbopack = nextMajor !== null && nextMajor >= 14 && nextMajor <= 15;
+  const turbopackIsDefault = nextMajor !== null && nextMajor >= 16;
 
   let modified = false;
   const sanitized: Record<string, unknown> = {};
@@ -54,10 +56,10 @@ export function sanitizePackageJson(content: string): string {
       modified = true;
     }
 
-    // For Next.js 14–15, Turbopack is the default for `next dev` even without
-    // the flag. Inject --no-turbopack to force webpack instead.
-    if (canDisableTurbopack && /\bnext\s+dev\b/.test(cmd) && !cmd.includes('--no-turbopack')) {
-      cmd = cmd.trimEnd() + ' --no-turbopack';
+    // Next.js 16+ uses Turbopack for `next dev` even without a flag - force
+    // webpack back on since Turbopack's native bindings can't run here.
+    if (turbopackIsDefault && /\bnext\s+dev\b/.test(cmd) && !cmd.includes('--webpack')) {
+      cmd = cmd.trimEnd() + ' --webpack';
       modified = true;
     }
 
