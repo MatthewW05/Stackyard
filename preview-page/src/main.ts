@@ -2,6 +2,7 @@ import { WebContainer } from '@webcontainer/api';
 import { fetchRepoFiles, GitHubFetchError } from './githubRepo';
 import { buildFileSystemTree, type RepoFile } from './fileSystemTree';
 import { detectStartScript, sanitizePackageJson } from './devServer';
+import { locatePackageJson, type PackageJsonCandidate } from './packageJsonLocator';
 import { hasStaticEntry, STATIC_SERVER_SCRIPT } from './staticServer';
 import { detectUnsupportedTech } from './detectUnsupportedTech';
 import { createStatusLine } from './status';
@@ -53,7 +54,7 @@ async function main(): Promise<void> {
 
   // WebContainer.boot() throws if called twice in the same page - cache the
   // promise so any future re-entry reuses the same instance instead of
-  // re-booting. See WEBCONTAINER_SPIKE_NOTES.md.
+  // re-booting. See WEBCONTAINER_NOTES.md.
   let bootPromise: Promise<WebContainer> | null = null;
 
   function bootWebContainer(): Promise<WebContainer> {
@@ -111,10 +112,13 @@ async function main(): Promise<void> {
       return;
     }
 
-    let packageJsonContent: string;
-    try {
-      packageJsonContent = await instance.fs.readFile('/package.json', 'utf-8');
-    } catch {
+    const decoder = new TextDecoder();
+    const packageJsonCandidates: PackageJsonCandidate[] = files
+      .filter((f) => f.path === 'package.json' || f.path.endsWith('/package.json'))
+      .map((f) => ({ path: f.path, content: decoder.decode(f.contents) }));
+
+    const located = locatePackageJson(packageJsonCandidates);
+    if (!located) {
       const unsupported = detectUnsupportedTech(files.map((f) => f.path));
       if (unsupported) {
         installStatus.set(`${unsupported.tech}: ${unsupported.message}`, 'error');
@@ -132,10 +136,12 @@ async function main(): Promise<void> {
       return;
     }
 
-    const sanitized = sanitizePackageJson(packageJsonContent);
-    if (sanitized !== packageJsonContent) {
+    const cwd = located.dir || undefined;
+
+    const sanitized = sanitizePackageJson(located.content);
+    if (sanitized !== located.content) {
       try {
-        await instance.fs.writeFile('/package.json', sanitized);
+        await instance.fs.writeFile('/' + located.path, sanitized);
       } catch (error) {
         installStatus.set(
           `Failed to write sanitized package.json: ${error instanceof Error ? error.message : String(error)}`,
@@ -151,10 +157,10 @@ async function main(): Promise<void> {
       return;
     }
 
-    const installOk = await runInstall(instance);
+    const installOk = await runInstall(instance, cwd);
     if (!installOk) return;
 
-    await startDevServer(instance, startScript);
+    await startDevServer(instance, startScript, cwd);
   }
 
   // Renders terminal output cleanly in a <pre>:
@@ -188,10 +194,10 @@ async function main(): Promise<void> {
     element.textContent = text;
   }
 
-  async function runInstall(instance: WebContainer): Promise<boolean> {
+  async function runInstall(instance: WebContainer, cwd?: string): Promise<boolean> {
     installStatus.set('Running npm install...', 'loading');
     try {
-      const process = await instance.spawn('npm', ['install', '--legacy-peer-deps']);
+      const process = await instance.spawn('npm', ['install', '--legacy-peer-deps'], { cwd });
       process.output.pipeTo(
         new WritableStream({
           write(chunk) {
@@ -217,7 +223,11 @@ async function main(): Promise<void> {
     return true;
   }
 
-  async function startDevServer(instance: WebContainer, startScript: string): Promise<void> {
+  async function startDevServer(
+    instance: WebContainer,
+    startScript: string,
+    cwd?: string,
+  ): Promise<void> {
     const devStatus = createStatusLine();
     app.append(devStatus.el);
 
@@ -238,7 +248,7 @@ async function main(): Promise<void> {
     });
 
     try {
-      const process = await instance.spawn('npm', ['run', startScript]);
+      const process = await instance.spawn('npm', ['run', startScript], { cwd });
       process.output.pipeTo(
         new WritableStream({
           write(chunk) {

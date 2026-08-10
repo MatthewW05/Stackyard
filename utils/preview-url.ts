@@ -1,6 +1,6 @@
 import type { GitHubRepo } from '@/utils/github';
 
-// Hosted on Vercel; see preview-page/ and WEBCONTAINER_SPIKE_NOTES.md for why
+// Hosted on Vercel; see preview-page/ and WEBCONTAINER_NOTES.md for why
 // this can't be a page packaged into the extension itself.
 export const PREVIEW_PAGE_URL = 'https://preview-page-seven.vercel.app/';
 

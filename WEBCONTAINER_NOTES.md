@@ -1,6 +1,6 @@
-# WebContainer spike — findings
+# WebContainer notes — findings, gotchas, and environment quirks
 
-Throwaway proof-of-concept for `spike/webcontainer-hello-world`. Not merged as-is; feeds `feature/webcontainer-page` in Phase 1.
+Started as findings from the throwaway `spike/webcontainer-hello-world` proof-of-concept (Phase 0). Since then it's grown into a running log of WebContainer-environment quirks discovered while building later phases - each dated section below is scoped to the branch that found it.
 
 ## Setup that worked
 
@@ -86,6 +86,25 @@ resolving. Confirmed via Playwright against a real headless Firefox build.
 Treating this as a known, unavoidable-for-now caveat rather than a blocker -
 worth re-checking on future `@webcontainer/api` version bumps in case
 StackBlitz addresses it upstream.
+
+## Follow-up from `feature/framework-coverage`: transient chunk-load error on first Next.js App Router compile
+
+While testing Next.js App Router repos (`lifeofsoumya/NextJS-featuredStarterTemplate`) through a real preview, a fresh run occasionally surfaced two runtime errors in the iframe right after the dev server came up:
+
+```
+Runtime Error
+Error: "" literal not terminated before end of script
+```
+
+```
+Runtime Error
+ChunkLoadError: Loading chunk app/layout failed.
+(missing: https://...webcontainer-api.io/_next/static/chunks/app/layout.js)
+```
+
+Working theory: `main.ts`'s `startDevServer` reveals the iframe as soon as the `server-ready` event fires - which is when Next's dev server binds its port, not when it's finished compiling. Next's App Router compiles routes on demand on first request; if the iframe's first request lands mid-compile (or a recompile invalidates an in-flight chunk write), the response can arrive truncated (the "literal not terminated" syntax error) or reference a chunk hash that's already gone (the `ChunkLoadError`).
+
+Not reproducible on demand - retried the same repo from a fresh `WebContainer.boot()` several times afterward and it loaded cleanly every time. Treating this as a known, rare race in Next.js App Router's lazy-compile behavior rather than chasing a fix blind. Revisit only if it starts reproducing reliably; if it does, the likely fix is delaying the iframe reveal past `server-ready` until some signal of first-compile completion, rather than anything about how this project mounts or detects the repo.
 
 ## Licensing — flag for later, not blocking now
 

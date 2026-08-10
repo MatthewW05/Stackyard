@@ -57,50 +57,49 @@ describe('sanitizePackageJson', () => {
     expect(sanitizePackageJson(input)).toBe(input);
   });
 
-  it('strips --turbopack and adds --no-turbopack for next dev (v15)', () => {
+  it('strips --turbopack from next dev on Next.js 15 (webpack is already the default)', () => {
     const input = JSON.stringify({
       dependencies: { next: '^15.0.0' },
       scripts: { dev: 'next dev --turbopack' },
     });
     const result = JSON.parse(sanitizePackageJson(input));
-    expect(result.scripts.dev).toBe('next dev --no-turbopack');
+    expect(result.scripts.dev).toBe('next dev');
   });
 
-  it('adds --no-turbopack to plain next dev for v14-15 (auto-enables Turbopack)', () => {
+  it('leaves plain next dev unchanged on Next.js 14-15 (webpack is already the default)', () => {
     const input = JSON.stringify({
       dependencies: { next: '^15.0.0' },
       scripts: { dev: 'next dev' },
     });
-    const result = JSON.parse(sanitizePackageJson(input));
-    expect(result.scripts.dev).toBe('next dev --no-turbopack');
+    expect(sanitizePackageJson(input)).toBe(input);
   });
 
-  it('does not add --no-turbopack for Next.js 16+ (flag was removed)', () => {
+  it('adds --webpack to plain next dev for Next.js 16+ (Turbopack is now the default)', () => {
     const input = JSON.stringify({
       dependencies: { next: '^16.0.0' },
       scripts: { dev: 'next dev' },
     });
     const result = JSON.parse(sanitizePackageJson(input));
-    expect(result.scripts.dev).toBe('next dev');
+    expect(result.scripts.dev).toBe('next dev --webpack');
   });
 
-  it('does not add --no-turbopack when next version is unknown', () => {
+  it('does not add --webpack when next version is unknown', () => {
     const input = JSON.stringify({ scripts: { dev: 'next dev' } });
     const result = JSON.parse(sanitizePackageJson(input));
     expect(result.scripts.dev).toBe('next dev');
   });
 
-  it('does not duplicate --no-turbopack if already present', () => {
+  it('does not duplicate --webpack if already present', () => {
     const input = JSON.stringify({
-      dependencies: { next: '^15.0.0' },
-      scripts: { dev: 'next dev --no-turbopack' },
+      dependencies: { next: '^16.0.0' },
+      scripts: { dev: 'next dev --webpack' },
     });
     expect(sanitizePackageJson(input)).toBe(input);
   });
 
-  it('strips --turbopack from non-dev next commands but does not add --no-turbopack', () => {
+  it('strips --turbopack from non-dev next commands but does not add --webpack', () => {
     const input = JSON.stringify({
-      dependencies: { next: '^15.0.0' },
+      dependencies: { next: '^16.0.0' },
       scripts: { start: 'next start --turbopack' },
     });
     const result = JSON.parse(sanitizePackageJson(input));
