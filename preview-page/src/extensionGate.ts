@@ -5,7 +5,7 @@ const DEFAULT_INTERVAL_MS = 50;
  * True once the extension-marker content script
  * (entrypoints/extension-marker.content.ts) has set its DOM attribute on
  * this page. This is a UX nudge, not a security boundary - see
- * WEBCONTAINER_SPIKE_NOTES.md / roadmap for why that's fine here.
+ * WEBCONTAINER_NOTES.md / roadmap for why that's fine here.
  */
 export function isExtensionMarkerPresent(): boolean {
   return document.documentElement.dataset.stackyardExtensionInstalled === 'true';

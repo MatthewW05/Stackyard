@@ -54,7 +54,7 @@ async function main(): Promise<void> {
 
   // WebContainer.boot() throws if called twice in the same page - cache the
   // promise so any future re-entry reuses the same instance instead of
-  // re-booting. See WEBCONTAINER_SPIKE_NOTES.md.
+  // re-booting. See WEBCONTAINER_NOTES.md.
   let bootPromise: Promise<WebContainer> | null = null;
 
   function bootWebContainer(): Promise<WebContainer> {
