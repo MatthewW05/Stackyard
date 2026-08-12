@@ -5,6 +5,7 @@ import {
   type BridgeResult,
 } from '@/utils/messages';
 import { fetchRepoFiles } from '@/utils/githubRepo';
+import { githubTokenStorage } from '@/utils/githubAuth';
 
 type BridgeHandler = (payload: unknown) => Promise<unknown>;
 
@@ -33,7 +34,10 @@ const bridgeHandlers: Record<string, BridgeHandler> = {
     if (!isGitHubFetchRepoPayload(payload)) {
       throw new Error('github:fetch-repo requires an { owner, repo, token? } payload');
     }
-    return fetchRepoFiles(payload.owner, payload.repo, payload.token);
+    // The signed-in token (if any) takes priority over a payload-supplied
+    // one, so a real sign-in is always authoritative once it exists.
+    const storedToken = await githubTokenStorage.getValue();
+    return fetchRepoFiles(payload.owner, payload.repo, storedToken ?? payload.token);
   },
 };
 
