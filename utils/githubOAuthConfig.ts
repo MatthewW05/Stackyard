@@ -7,4 +7,4 @@
 // with any homepage URL and no callback URL, then open the app's settings
 // and check "Enable Device Flow". Copy the "Client ID" shown there into the
 // placeholder below.
-export const GITHUB_OAUTH_CLIENT_ID = 'REPLACE_WITH_YOUR_GITHUB_OAUTH_APP_CLIENT_ID';
+export const GITHUB_OAUTH_CLIENT_ID = 'Ov23liCXY359PVLwsu9M';

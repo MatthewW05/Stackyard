@@ -1,0 +1,21 @@
+#root {
+  width: 28rem;
+  padding: 1.5rem;
+  text-align: center;
+}
+
+.user-code {
+  font-size: 1.8em;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  margin: 0.5em 0;
+}
+
+.error-message {
+  color: #f87171;
+}
+
+.rate-limit {
+  opacity: 0.75;
+  font-size: 0.9em;
+}
