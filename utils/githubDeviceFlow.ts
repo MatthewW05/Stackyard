@@ -36,7 +36,10 @@ async function githubOAuthFetch(
  * the device_code + interval/expiry needed to poll for the resulting token.
  */
 export async function startDeviceFlow(clientId: string): Promise<DeviceCodeResponse> {
-  const data = await githubOAuthFetch(DEVICE_CODE_URL, { client_id: clientId, scope: DEFAULT_SCOPE });
+  const data = await githubOAuthFetch(DEVICE_CODE_URL, {
+    client_id: clientId,
+    scope: DEFAULT_SCOPE,
+  });
   return data as unknown as DeviceCodeResponse;
 }
 

@@ -1,5 +1,9 @@
 import { startDeviceFlow, pollDeviceFlowOnce } from './githubDeviceFlow';
-import { githubTokenStorage, deviceFlowStatusStorage, deviceFlowPollStateStorage } from './githubAuth';
+import {
+  githubTokenStorage,
+  deviceFlowStatusStorage,
+  deviceFlowPollStateStorage,
+} from './githubAuth';
 
 // GitHub's real suggested interval (typically 5s) is passed straight
 // through to chrome.alarms rather than pre-clamped here: Chrome itself
@@ -47,7 +51,8 @@ export async function cancelSignIn(): Promise<void> {
   await deviceFlowStatusStorage.setValue({ phase: 'idle' });
 }
 
-const EXPIRED_MESSAGE = 'The sign-in code expired before it was used. Start again to get a new one.';
+const EXPIRED_MESSAGE =
+  'The sign-in code expired before it was used. Start again to get a new one.';
 const DENIED_MESSAGE = 'Sign-in was declined on GitHub.';
 
 export type PollTickResult = { done: false; nextPollDelaySeconds: number } | { done: true };

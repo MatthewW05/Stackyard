@@ -1,5 +1,9 @@
 import { useEffect, useState } from 'react';
-import { githubTokenStorage, deviceFlowStatusStorage, type DeviceFlowStatus } from '@/utils/githubAuth';
+import {
+  githubTokenStorage,
+  deviceFlowStatusStorage,
+  type DeviceFlowStatus,
+} from '@/utils/githubAuth';
 import type { BridgeResult } from '@/utils/messages';
 import { fetchGitHubRateLimit, type RateLimitStatus } from './rateLimit';
 
@@ -26,7 +30,10 @@ function SignInView() {
 
     function applyToken(token: string | null) {
       setSignedIn(token !== null);
-      if (token) fetchGitHubRateLimit(token).then(setRateLimit).catch(() => {});
+      if (token)
+        fetchGitHubRateLimit(token)
+          .then(setRateLimit)
+          .catch(() => {});
       else setRateLimit(null);
     }
 
