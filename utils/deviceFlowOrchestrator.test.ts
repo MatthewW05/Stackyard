@@ -30,14 +30,14 @@ describe('deviceFlowOrchestrator', () => {
   });
 
   describe('startSignIn', () => {
-    it('records poll state and awaiting-user status, and returns a clamped poll delay', async () => {
+    it('records poll state and awaiting-user status, passing the real interval straight through', async () => {
       fetchMock.mockResolvedValue(
         jsonResponse({
           device_code: 'device-123',
           user_code: 'ABCD-1234',
           verification_uri: 'https://github.com/login/device',
           expires_in: 900,
-          interval: 5, // below the 60s floor - should be clamped
+          interval: 5,
         }),
       );
 
@@ -46,7 +46,7 @@ describe('deviceFlowOrchestrator', () => {
       expect(result).toEqual({
         userCode: 'ABCD-1234',
         verificationUri: 'https://github.com/login/device',
-        nextPollDelaySeconds: 60,
+        nextPollDelaySeconds: 5,
       });
       await expect(deviceFlowStatusStorage.getValue()).resolves.toEqual({
         phase: 'awaiting-user',
@@ -110,13 +110,20 @@ describe('deviceFlowOrchestrator', () => {
       await expect(deviceFlowStatusStorage.getValue()).resolves.toEqual({ phase: 'idle' });
     });
 
-    it('reschedules at the clamped interval on authorization_pending', async () => {
+    it('reschedules at the stored interval on authorization_pending', async () => {
       await seedPollState({ intervalSeconds: 5 });
       fetchMock.mockResolvedValue(jsonResponse({ error: 'authorization_pending' }));
 
-      await expect(runPollTick()).resolves.toEqual({ done: false, nextPollDelaySeconds: 60 });
+      await expect(runPollTick()).resolves.toEqual({ done: false, nextPollDelaySeconds: 5 });
       // Poll state (and the wait for the user) is still in progress.
       await expect(deviceFlowPollStateStorage.getValue()).resolves.not.toBeNull();
+    });
+
+    it('guards against a non-positive interval instead of scheduling a zero/negative delay', async () => {
+      await seedPollState({ intervalSeconds: 0 });
+      fetchMock.mockResolvedValue(jsonResponse({ error: 'authorization_pending' }));
+
+      await expect(runPollTick()).resolves.toEqual({ done: false, nextPollDelaySeconds: 1 });
     });
 
     it('updates the stored interval and reschedules on slow_down', async () => {

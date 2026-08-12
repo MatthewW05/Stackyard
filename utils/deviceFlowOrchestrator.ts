@@ -1,16 +1,15 @@
 import { startDeviceFlow, pollDeviceFlowOnce } from './githubDeviceFlow';
 import { githubTokenStorage, deviceFlowStatusStorage, deviceFlowPollStateStorage } from './githubAuth';
 
-// chrome.alarms clamps delays under 1 minute to 1 minute for packed
-// extensions (shorter delays only work in unpacked/dev mode) - well above
-// GitHub's typical 5s interval, but harmless: polling slower than requested
-// just means sign-in takes a bit longer, still comfortably inside the
-// ~15 minute code expiry. Only polling *faster* than requested risks a
-// slow_down response.
-const MIN_POLL_INTERVAL_SECONDS = 60;
-
+// GitHub's real suggested interval (typically 5s) is passed straight
+// through to chrome.alarms rather than pre-clamped here: Chrome itself
+// clamps delays under 1 minute to 1 minute, but only for packed/published
+// extensions - unpacked dev builds are deliberately exempted so local
+// testing stays fast. Clamping to 60s ourselves would defeat that exemption
+// and make every sign-in during development take a full minute per poll for
+// no reason. Only guards against a degenerate non-positive interval.
 function clampInterval(intervalSeconds: number): number {
-  return Math.max(intervalSeconds, MIN_POLL_INTERVAL_SECONDS);
+  return Math.max(intervalSeconds, 1);
 }
 
 export interface StartSignInResult {

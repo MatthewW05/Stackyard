@@ -1,5 +1,53 @@
 #root {
-  width: 20rem;
+  width: 30rem;
+}
+
+.layout {
+  display: flex;
+  min-height: 16rem;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.25rem;
+  width: 8rem;
+  flex-shrink: 0;
+  padding: 1rem 0.5rem;
+  border-right: 1px solid rgba(128, 128, 128, 0.3);
+}
+
+.sidebar button {
+  text-align: left;
+  background: none;
+  border: 1px solid transparent;
+  padding: 0.5em 0.75em;
+}
+
+.sidebar button.active {
+  background-color: rgba(100, 108, 255, 0.15);
+  border-color: #646cff;
+}
+
+.content {
+  flex: 1;
   padding: 1.5rem;
   text-align: center;
+}
+
+.user-code {
+  font-size: 1.6em;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  margin: 0.5em 0;
+}
+
+.error-message {
+  color: #f87171;
+}
+
+.rate-limit {
+  opacity: 0.75;
+  font-size: 0.9em;
 }

@@ -54,6 +54,11 @@ const bridgeHandlers: Record<string, BridgeHandler> = {
     return fetchRepoFiles(payload.owner, payload.repo, storedToken ?? payload.token);
   },
   'auth:start-sign-in': async () => {
+    if (GITHUB_OAUTH_CLIENT_ID === 'REPLACE_WITH_YOUR_GITHUB_OAUTH_APP_CLIENT_ID') {
+      throw new Error(
+        'No GitHub OAuth client ID is configured - set GITHUB_OAUTH_CLIENT_ID in utils/githubOAuthConfig.ts.',
+      );
+    }
     const result = await startSignIn(GITHUB_OAUTH_CLIENT_ID);
     await scheduleNextPoll(result.nextPollDelaySeconds);
     return { userCode: result.userCode, verificationUri: result.verificationUri };
