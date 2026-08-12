@@ -55,16 +55,12 @@ function base64ToBytes(base64: string): Uint8Array {
  * bridge's own error (e.g. a timeout, most likely meaning the Stackyard
  * extension isn't installed) otherwise.
  */
-export async function fetchRepoFiles(
-  owner: string,
-  repo: string,
-  token?: string,
-): Promise<RepoFile[]> {
+export async function fetchRepoFiles(owner: string, repo: string): Promise<RepoFile[]> {
   let files: RawRepoFile[];
   try {
     files = await sendBridgeRequest<RawRepoFile[]>(
       'github:fetch-repo',
-      { owner, repo, token },
+      { owner, repo },
       GITHUB_FETCH_TIMEOUT_MS,
     );
   } catch (error) {

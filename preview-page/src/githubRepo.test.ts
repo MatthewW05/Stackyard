@@ -15,14 +15,14 @@ describe('fetchRepoFiles', () => {
     sendBridgeRequestMock.mockReset();
   });
 
-  it('requests github:fetch-repo over the bridge with owner/repo/token', async () => {
+  it('requests github:fetch-repo over the bridge with owner/repo', async () => {
     sendBridgeRequestMock.mockResolvedValue([]);
 
-    await fetchRepoFiles('octocat', 'hello-world', 'a-token');
+    await fetchRepoFiles('octocat', 'hello-world');
 
     expect(sendBridgeRequestMock).toHaveBeenCalledWith(
       'github:fetch-repo',
-      { owner: 'octocat', repo: 'hello-world', token: 'a-token' },
+      { owner: 'octocat', repo: 'hello-world' },
       expect.any(Number),
     );
   });

@@ -97,10 +97,9 @@ async function main(): Promise<void> {
 
   async function mountRepo(instance: WebContainer, { owner, repo }: RepoParams): Promise<void> {
     mountStatus.set(`Fetching ${owner}/${repo} from GitHub...`, 'loading');
-    const token = new URLSearchParams(location.search).get('token') ?? undefined;
     let files: RepoFile[];
     try {
-      files = await fetchRepoFiles(owner, repo, token);
+      files = await fetchRepoFiles(owner, repo);
       mountStatus.set(`Mounting ${files.length} files...`, 'loading');
 
       const tree = buildFileSystemTree(files);

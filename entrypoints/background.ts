@@ -26,17 +26,12 @@ type BridgeHandler = (payload: unknown) => Promise<unknown>;
 interface GitHubFetchRepoPayload {
   owner: string;
   repo: string;
-  token?: string;
 }
 
 function isGitHubFetchRepoPayload(payload: unknown): payload is GitHubFetchRepoPayload {
   if (!payload || typeof payload !== 'object') return false;
-  const { owner, repo, token } = payload as Record<string, unknown>;
-  return (
-    typeof owner === 'string' &&
-    typeof repo === 'string' &&
-    (token === undefined || typeof token === 'string')
-  );
+  const { owner, repo } = payload as Record<string, unknown>;
+  return typeof owner === 'string' && typeof repo === 'string';
 }
 
 // One handler per `type`. The later AI fallback call registers here too -
@@ -46,12 +41,12 @@ const bridgeHandlers: Record<string, BridgeHandler> = {
   ping: async () => 'pong',
   'github:fetch-repo': async (payload) => {
     if (!isGitHubFetchRepoPayload(payload)) {
-      throw new Error('github:fetch-repo requires an { owner, repo, token? } payload');
+      throw new Error('github:fetch-repo requires an { owner, repo } payload');
     }
-    // The signed-in token (if any) takes priority over a payload-supplied
-    // one, so a real sign-in is always authoritative once it exists.
-    const storedToken = await githubTokenStorage.getValue();
-    return fetchRepoFiles(payload.owner, payload.repo, storedToken ?? payload.token);
+    // The token, if any, comes only from a real sign-in - the hosted page
+    // never supplies or sees it.
+    const token = await githubTokenStorage.getValue();
+    return fetchRepoFiles(payload.owner, payload.repo, token ?? undefined);
   },
   'auth:start-sign-in': async () => {
     if (GITHUB_OAUTH_CLIENT_ID === 'REPLACE_WITH_YOUR_GITHUB_OAUTH_APP_CLIENT_ID') {
