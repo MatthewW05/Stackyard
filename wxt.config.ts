@@ -18,8 +18,10 @@ export default defineConfig({
     // fetches to a matching origin bypass CORS entirely. See roadmap Phase 3,
     // feature/github-oauth-device-flow.
     host_permissions: ['https://github.com/*'],
-    // Required for wxt/storage (chrome.storage.local), used to persist the
-    // signed-in GitHub token - see utils/githubAuth.ts.
-    permissions: ['storage'],
+    // 'storage' is required for wxt/storage (chrome.storage.local), used to
+    // persist the signed-in GitHub token - see utils/githubAuth.ts. 'alarms'
+    // drives the Device Flow poll loop from the background script instead of
+    // an in-page timer - see utils/deviceFlowOrchestrator.ts.
+    permissions: ['storage', 'alarms'],
   },
 });

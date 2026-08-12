@@ -6,6 +6,20 @@ import {
 } from '@/utils/messages';
 import { fetchRepoFiles } from '@/utils/githubRepo';
 import { githubTokenStorage } from '@/utils/githubAuth';
+import { GITHUB_OAUTH_CLIENT_ID } from '@/utils/githubOAuthConfig';
+import { startSignIn, cancelSignIn, runPollTick } from '@/utils/deviceFlowOrchestrator';
+
+// Drives the Device Flow poll loop via browser.alarms rather than an
+// in-page timer: the popup that starts sign-in always closes the instant
+// the user switches to github.com to enter the code, and a plain
+// setTimeout-based loop in the service worker isn't guaranteed to fire if
+// MV3 suspends it first. Alarms wake the worker back up. See
+// utils/deviceFlowOrchestrator.ts and roadmap Phase 3.
+const DEVICE_FLOW_ALARM_NAME = 'stackyard:github-device-flow-poll';
+
+async function scheduleNextPoll(delaySeconds: number): Promise<void> {
+  await browser.alarms.create(DEVICE_FLOW_ALARM_NAME, { delayInMinutes: delaySeconds / 60 });
+}
 
 type BridgeHandler = (payload: unknown) => Promise<unknown>;
 
@@ -38,6 +52,15 @@ const bridgeHandlers: Record<string, BridgeHandler> = {
     // one, so a real sign-in is always authoritative once it exists.
     const storedToken = await githubTokenStorage.getValue();
     return fetchRepoFiles(payload.owner, payload.repo, storedToken ?? payload.token);
+  },
+  'auth:start-sign-in': async () => {
+    const result = await startSignIn(GITHUB_OAUTH_CLIENT_ID);
+    await scheduleNextPoll(result.nextPollDelaySeconds);
+    return { userCode: result.userCode, verificationUri: result.verificationUri };
+  },
+  'auth:cancel-sign-in': async () => {
+    await browser.alarms.clear(DEVICE_FLOW_ALARM_NAME);
+    await cancelSignIn();
   },
 };
 
@@ -77,5 +100,12 @@ export default defineBackground(() => {
       return;
     }
     return dispatchBridgeRequest(message);
+  });
+
+  browser.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name !== DEVICE_FLOW_ALARM_NAME) return;
+    runPollTick().then((result) => {
+      if (!result.done) return scheduleNextPoll(result.nextPollDelaySeconds);
+    });
   });
 });

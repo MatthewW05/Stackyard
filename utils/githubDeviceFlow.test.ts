@@ -1,10 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import {
-  startDeviceFlow,
-  pollForAccessToken,
-  DeviceFlowExpiredError,
-  DeviceFlowAccessDeniedError,
-} from './githubDeviceFlow';
+import { startDeviceFlow, pollDeviceFlowOnce } from './githubDeviceFlow';
 
 function jsonResponse(body: unknown, status = 200): Response {
   return {
@@ -55,33 +50,23 @@ describe('startDeviceFlow', () => {
   });
 });
 
-describe('pollForAccessToken', () => {
+describe('pollDeviceFlowOnce', () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
-    vi.useFakeTimers();
   });
 
   afterEach(() => {
-    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
-  it('resolves with the access token once GitHub returns one', async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ access_token: 'gho_token', token_type: 'bearer' }));
+  it('posts client_id/device_code/grant_type to the access token endpoint', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ access_token: 'gho_token' }));
 
-    const promise = pollForAccessToken({
-      clientId: 'client-abc',
-      deviceCode: 'device-123',
-      intervalSeconds: 5,
-      expiresInSeconds: 900,
-    });
-    await vi.advanceTimersByTimeAsync(5000);
+    await pollDeviceFlowOnce('client-abc', 'device-123');
 
-    await expect(promise).resolves.toBe('gho_token');
-    expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe('https://github.com/login/oauth/access_token');
     expect(JSON.parse(init.body)).toEqual({
@@ -91,118 +76,53 @@ describe('pollForAccessToken', () => {
     });
   });
 
-  it('keeps polling at the given interval on authorization_pending', async () => {
-    fetchMock
-      .mockResolvedValueOnce(jsonResponse({ error: 'authorization_pending' }))
-      .mockResolvedValueOnce(jsonResponse({ error: 'authorization_pending' }))
-      .mockResolvedValueOnce(jsonResponse({ access_token: 'gho_token' }));
+  it('returns a success result with the token', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ access_token: 'gho_token', token_type: 'bearer' }));
 
-    const promise = pollForAccessToken({
-      clientId: 'client-abc',
-      deviceCode: 'device-123',
-      intervalSeconds: 5,
-      expiresInSeconds: 900,
+    await expect(pollDeviceFlowOnce('client-abc', 'device-123')).resolves.toEqual({
+      status: 'success',
+      token: 'gho_token',
     });
-
-    await vi.advanceTimersByTimeAsync(5000);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    await vi.advanceTimersByTimeAsync(5000);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    await vi.advanceTimersByTimeAsync(5000);
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-
-    await expect(promise).resolves.toBe('gho_token');
   });
 
-  it('backs off to the new interval on slow_down', async () => {
-    fetchMock
-      .mockResolvedValueOnce(jsonResponse({ error: 'slow_down', interval: 10 }))
-      .mockResolvedValueOnce(jsonResponse({ access_token: 'gho_token' }));
+  it('returns a pending result on authorization_pending', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ error: 'authorization_pending' }));
 
-    const promise = pollForAccessToken({
-      clientId: 'client-abc',
-      deviceCode: 'device-123',
-      intervalSeconds: 5,
-      expiresInSeconds: 900,
+    await expect(pollDeviceFlowOnce('client-abc', 'device-123')).resolves.toEqual({
+      status: 'pending',
     });
-
-    await vi.advanceTimersByTimeAsync(5000);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-
-    // Still using the old 5s interval wouldn't be enough to trigger the next
-    // poll - only the slow_down response's new 10s interval should.
-    await vi.advanceTimersByTimeAsync(5000);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    await vi.advanceTimersByTimeAsync(5000);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-
-    await expect(promise).resolves.toBe('gho_token');
   });
 
-  it('rejects with DeviceFlowExpiredError on expired_token', async () => {
+  it('returns the new interval on slow_down', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ error: 'slow_down', interval: 10 }));
+
+    await expect(pollDeviceFlowOnce('client-abc', 'device-123')).resolves.toEqual({
+      status: 'slow_down',
+      intervalSeconds: 10,
+    });
+  });
+
+  it('returns an expired result on expired_token', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ error: 'expired_token' }));
 
-    const promise = pollForAccessToken({
-      clientId: 'client-abc',
-      deviceCode: 'device-123',
-      intervalSeconds: 5,
-      expiresInSeconds: 900,
+    await expect(pollDeviceFlowOnce('client-abc', 'device-123')).resolves.toEqual({
+      status: 'expired',
     });
-    const expectation = expect(promise).rejects.toThrow(DeviceFlowExpiredError);
-    await vi.advanceTimersByTimeAsync(5000);
-    await expectation;
   });
 
-  it('rejects with DeviceFlowAccessDeniedError on access_denied', async () => {
+  it('returns a denied result on access_denied', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ error: 'access_denied' }));
 
-    const promise = pollForAccessToken({
-      clientId: 'client-abc',
-      deviceCode: 'device-123',
-      intervalSeconds: 5,
-      expiresInSeconds: 900,
+    await expect(pollDeviceFlowOnce('client-abc', 'device-123')).resolves.toEqual({
+      status: 'denied',
     });
-    const expectation = expect(promise).rejects.toThrow(DeviceFlowAccessDeniedError);
-    await vi.advanceTimersByTimeAsync(5000);
-    await expectation;
   });
 
-  it('rejects with DeviceFlowExpiredError client-side once the deadline passes, without polling again', async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ error: 'authorization_pending' }));
+  it('throws on an unrecognized error code', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ error: 'something_new' }));
 
-    const promise = pollForAccessToken({
-      clientId: 'client-abc',
-      deviceCode: 'device-123',
-      intervalSeconds: 5,
-      expiresInSeconds: 8,
-    });
-    const expectation = expect(promise).rejects.toThrow(DeviceFlowExpiredError);
-
-    await vi.advanceTimersByTimeAsync(5000);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    // Second wake-up (10s elapsed) is past the 8s expiry - should reject
-    // before firing another fetch.
-    await vi.advanceTimersByTimeAsync(5000);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-
-    await expectation;
-  });
-
-  it('rejects when aborted mid-wait, without polling again', async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ error: 'authorization_pending' }));
-    const controller = new AbortController();
-
-    const promise = pollForAccessToken({
-      clientId: 'client-abc',
-      deviceCode: 'device-123',
-      intervalSeconds: 5,
-      expiresInSeconds: 900,
-      signal: controller.signal,
-    });
-    const expectation = expect(promise).rejects.toMatchObject({ name: 'AbortError' });
-
-    controller.abort();
-    await expectation;
-    expect(fetchMock).not.toHaveBeenCalled();
+    await expect(pollDeviceFlowOnce('client-abc', 'device-123')).rejects.toThrow(
+      /Unexpected GitHub OAuth response/,
+    );
   });
 });

@@ -6,20 +6,6 @@ const GRANT_TYPE = 'urn:ietf:params:oauth:grant-type:device_code';
 // of signing in, per roadmap Phase 3.
 const DEFAULT_SCOPE = 'repo';
 
-export class DeviceFlowAccessDeniedError extends Error {
-  constructor() {
-    super('Sign-in was declined on GitHub.');
-    this.name = 'DeviceFlowAccessDeniedError';
-  }
-}
-
-export class DeviceFlowExpiredError extends Error {
-  constructor() {
-    super('The sign-in code expired before it was used. Start again to get a new one.');
-    this.name = 'DeviceFlowExpiredError';
-  }
-}
-
 export interface DeviceCodeResponse {
   device_code: string;
   user_code: string;
@@ -31,13 +17,11 @@ export interface DeviceCodeResponse {
 async function githubOAuthFetch(
   url: string,
   body: Record<string, string>,
-  signal?: AbortSignal,
 ): Promise<Record<string, unknown>> {
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify(body),
-    signal,
   });
 
   if (!response.ok) {
@@ -51,90 +35,54 @@ async function githubOAuthFetch(
  * Starts a Device Flow sign-in, returning the code/URL to show the user and
  * the device_code + interval/expiry needed to poll for the resulting token.
  */
-export async function startDeviceFlow(
-  clientId: string,
-  signal?: AbortSignal,
-): Promise<DeviceCodeResponse> {
-  const data = await githubOAuthFetch(
-    DEVICE_CODE_URL,
-    { client_id: clientId, scope: DEFAULT_SCOPE },
-    signal,
-  );
+export async function startDeviceFlow(clientId: string): Promise<DeviceCodeResponse> {
+  const data = await githubOAuthFetch(DEVICE_CODE_URL, { client_id: clientId, scope: DEFAULT_SCOPE });
   return data as unknown as DeviceCodeResponse;
 }
 
-function sleep(ms: number, signal?: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (signal?.aborted) {
-      reject(new DOMException('Aborted', 'AbortError'));
-      return;
-    }
-    const timeout = setTimeout(resolve, ms);
-    signal?.addEventListener(
-      'abort',
-      () => {
-        clearTimeout(timeout);
-        reject(new DOMException('Aborted', 'AbortError'));
-      },
-      { once: true },
-    );
-  });
-}
-
-export interface PollForAccessTokenOptions {
-  clientId: string;
-  deviceCode: string;
-  intervalSeconds: number;
-  expiresInSeconds: number;
-  signal?: AbortSignal;
-}
+export type DeviceFlowPollResult =
+  | { status: 'success'; token: string }
+  | { status: 'pending' }
+  | { status: 'slow_down'; intervalSeconds: number }
+  | { status: 'expired' }
+  | { status: 'denied' };
 
 /**
- * Polls GitHub for the access token resulting from a Device Flow sign-in
- * started with `startDeviceFlow`, honoring the server's `interval` and
- * `slow_down` back-off. Runs in the options page itself, not the background
- * service worker, since MV3 service workers can be killed mid-poll (roadmap
- * Phase 3). Rejects with `DeviceFlowExpiredError` or
- * `DeviceFlowAccessDeniedError` if the user lets the code expire or declines
- * sign-in; rejects with an `AbortError` if `signal` is aborted.
+ * Makes one poll attempt against GitHub's access_token endpoint. A single
+ * attempt rather than a blocking loop, because the timing between attempts
+ * is driven by browser.alarms in the background script (see
+ * utils/deviceFlowOrchestrator.ts) rather than an in-page sleep loop - alarms
+ * survive both the popup closing (it always does, the instant the user
+ * switches to github.com to enter the code) and the background service
+ * worker being suspended between ticks, per roadmap Phase 3.
  */
-export async function pollForAccessToken(options: PollForAccessTokenOptions): Promise<string> {
-  const { clientId, deviceCode, intervalSeconds, expiresInSeconds, signal } = options;
-  const deadline = Date.now() + expiresInSeconds * 1000;
-  let interval = intervalSeconds;
+export async function pollDeviceFlowOnce(
+  clientId: string,
+  deviceCode: string,
+): Promise<DeviceFlowPollResult> {
+  const data = await githubOAuthFetch(ACCESS_TOKEN_URL, {
+    client_id: clientId,
+    device_code: deviceCode,
+    grant_type: GRANT_TYPE,
+  });
 
-  while (true) {
-    await sleep(interval * 1000, signal);
+  if (typeof data.access_token === 'string') {
+    return { status: 'success', token: data.access_token };
+  }
 
-    // Client-side safety net in addition to the server's own expired_token
-    // response, so a slow_down-inflated interval can't push a poll past the
-    // deadline before we'd otherwise notice.
-    if (Date.now() >= deadline) {
-      throw new DeviceFlowExpiredError();
-    }
-
-    const data = await githubOAuthFetch(
-      ACCESS_TOKEN_URL,
-      { client_id: clientId, device_code: deviceCode, grant_type: GRANT_TYPE },
-      signal,
-    );
-
-    if (typeof data.access_token === 'string') {
-      return data.access_token;
-    }
-
-    switch (data.error) {
-      case 'authorization_pending':
-        continue;
-      case 'slow_down':
-        interval = typeof data.interval === 'number' ? data.interval : interval + 5;
-        continue;
-      case 'expired_token':
-        throw new DeviceFlowExpiredError();
-      case 'access_denied':
-        throw new DeviceFlowAccessDeniedError();
-      default:
-        throw new Error(`Unexpected GitHub OAuth response: ${JSON.stringify(data)}`);
-    }
+  switch (data.error) {
+    case 'authorization_pending':
+      return { status: 'pending' };
+    case 'slow_down':
+      return {
+        status: 'slow_down',
+        intervalSeconds: typeof data.interval === 'number' ? data.interval : Number.NaN,
+      };
+    case 'expired_token':
+      return { status: 'expired' };
+    case 'access_denied':
+      return { status: 'denied' };
+    default:
+      throw new Error(`Unexpected GitHub OAuth response: ${JSON.stringify(data)}`);
   }
 }
