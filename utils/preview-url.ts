@@ -2,7 +2,7 @@ import type { GitHubRepo } from '@/utils/github';
 
 // Hosted on Vercel; see preview-page/ and WEBCONTAINER_NOTES.md for why
 // this can't be a page packaged into the extension itself.
-export const PREVIEW_PAGE_URL = 'https://preview-page-seven.vercel.app/';
+export const PREVIEW_PAGE_URL = 'https://stackyard.vercel.app/';
 
 // Shared by every content script that needs to match only the hosted page's
 // own domain (extension-marker.content.ts, message-bridge.content.ts).
