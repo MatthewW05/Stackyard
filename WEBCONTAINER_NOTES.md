@@ -141,12 +141,12 @@ whichever way the real feature branch goes.
 
 **Results, confirmed in real (non-headless) browser windows:**
 
-| Browser | Mode | control (has CORP header) | test (no CORP header) |
-| --- | --- | --- | --- |
-| Chrome | require-corp | loaded | blocked (`ERR_BLOCKED_BY_RESPONSE.NotSameOriginAfterDefaultedToSameOriginByCoep`) |
-| Chrome | credentialless | loaded | loaded |
-| Firefox | require-corp | loaded | blocked (broken-image icon) |
-| Firefox | credentialless | loaded | loaded |
+| Browser | Mode           | control (has CORP header) | test (no CORP header)                                                             |
+| ------- | -------------- | ------------------------- | --------------------------------------------------------------------------------- |
+| Chrome  | require-corp   | loaded                    | blocked (`ERR_BLOCKED_BY_RESPONSE.NotSameOriginAfterDefaultedToSameOriginByCoep`) |
+| Chrome  | credentialless | loaded                    | loaded                                                                            |
+| Firefox | require-corp   | loaded                    | blocked (broken-image icon)                                                       |
+| Firefox | credentialless | loaded                    | loaded                                                                            |
 
 Both browsers show the identical pattern. **Conclusion: credentialless is
 not Chrome-only for this project's purposes - both browsers benefit, and the
