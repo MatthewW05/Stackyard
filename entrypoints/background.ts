@@ -5,6 +5,7 @@ import {
   type BridgeResult,
 } from '@/utils/messages';
 import { fetchRepoFiles } from '@/utils/githubRepo';
+import { getRateLimitStatus } from '@/utils/githubRateLimit';
 import { githubTokenStorage } from '@/utils/githubAuth';
 import { GITHUB_OAUTH_CLIENT_ID } from '@/utils/githubOAuthConfig';
 import { startSignIn, cancelSignIn, runPollTick } from '@/utils/deviceFlowOrchestrator';
@@ -48,6 +49,7 @@ const bridgeHandlers: Record<string, BridgeHandler> = {
     const token = await githubTokenStorage.getValue();
     return fetchRepoFiles(payload.owner, payload.repo, token ?? undefined);
   },
+  'github:rate-limit-status': async () => getRateLimitStatus(),
   'auth:start-sign-in': async () => {
     if (GITHUB_OAUTH_CLIENT_ID === 'REPLACE_WITH_YOUR_GITHUB_OAUTH_APP_CLIENT_ID') {
       throw new Error(

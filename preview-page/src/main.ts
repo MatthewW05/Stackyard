@@ -8,6 +8,7 @@ import { detectUnsupportedTech } from './detectUnsupportedTech';
 import { createStatusLine } from './status';
 import { isExtensionMarkerPresent, waitForExtensionMarker } from './extensionGate';
 import { renderInstallPrompt } from './installPrompt';
+import { fetchRateLimitStatus, renderRateLimitStatus } from './rateLimit';
 import './style.css';
 
 interface RepoParams {
@@ -39,6 +40,14 @@ async function main(): Promise<void> {
   repoStatus.textContent = params
     ? `Preview: ${params.owner}/${params.repo}`
     : "Missing owner/repo query params. Open this page via the Stackyard extension's Preview button.";
+
+  // Non-blocking: doesn't gate WebContainer boot/mount below it. See
+  // roadmap Phase 3, feature/github-cache-layer.
+  const rateLimitContainer = document.createElement('div');
+  app.append(rateLimitContainer);
+  void fetchRateLimitStatus()
+    .then((status) => renderRateLimitStatus(rateLimitContainer, status))
+    .catch((error) => console.error('Failed to fetch GitHub rate limit status.', error));
 
   const bootStatus = createStatusLine();
   app.append(bootStatus.el);

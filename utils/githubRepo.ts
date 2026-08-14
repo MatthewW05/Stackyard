@@ -1,4 +1,5 @@
 import { getCachedRepo, setCachedRepo, isFresh } from './githubCache';
+import { recordRateLimit } from './githubRateLimit';
 
 const GITHUB_API = 'https://api.github.com';
 
@@ -81,6 +82,11 @@ async function githubFetch(
   } catch (cause) {
     throw new GitHubNetworkError(cause);
   }
+
+  // Captured unconditionally, including on error responses - a 403 with
+  // remaining=0 is exactly the "exhausted" case the rate-limit indicator
+  // needs to detect. See utils/githubRateLimit.ts.
+  await recordRateLimit(response.headers);
 
   // A conditional request (If-None-Match) hitting a match - the cached tree
   // is still current. Not an error; the caller (getTree) checks for this
