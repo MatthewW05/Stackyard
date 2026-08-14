@@ -8,6 +8,7 @@ import { detectUnsupportedTech } from './detectUnsupportedTech';
 import { createStatusLine } from './status';
 import { isExtensionMarkerPresent, waitForExtensionMarker } from './extensionGate';
 import { renderInstallPrompt } from './installPrompt';
+import { fetchRateLimitStatus, renderRateLimitStatus } from './rateLimit';
 import './style.css';
 
 interface RepoParams {
@@ -39,6 +40,22 @@ async function main(): Promise<void> {
   repoStatus.textContent = params
     ? `Preview: ${params.owner}/${params.repo}`
     : "Missing owner/repo query params. Open this page via the Stackyard extension's Preview button.";
+
+  // Non-blocking: doesn't gate WebContainer boot/mount below it. Called
+  // again after the boot/mount attempt below, since that's what actually
+  // talks to GitHub and updates the real numbers - rendering only once here
+  // would show whatever was left over from a previous session instead of
+  // this load's own result. See roadmap Phase 3, feature/github-cache-layer.
+  const rateLimitContainer = document.createElement('div');
+  app.append(rateLimitContainer);
+
+  function refreshRateLimitDisplay(): void {
+    void fetchRateLimitStatus()
+      .then((status) => renderRateLimitStatus(rateLimitContainer, status))
+      .catch((error) => console.error('Failed to fetch GitHub rate limit status.', error));
+  }
+
+  refreshRateLimitDisplay();
 
   const bootStatus = createStatusLine();
   app.append(bootStatus.el);
@@ -109,6 +126,14 @@ async function main(): Promise<void> {
     } catch (error) {
       mountStatus.set(describeMountError(error), 'error');
       return;
+    } finally {
+      // Refreshed here, right after the only step that actually talks to
+      // GitHub - not after the whole of mountRepo. npm install and the dev
+      // server start below never touch GitHub, and startDevServer awaits
+      // the spawned process's exit, which doesn't happen for a live dev
+      // server under normal operation - a finally around the entire
+      // mountRepo call (as this used to be) would never fire in practice.
+      refreshRateLimitDisplay();
     }
 
     const decoder = new TextDecoder();

@@ -33,3 +33,15 @@
   font-family: sans-serif;
   max-width: 32em;
 }
+
+.rate-limit-status {
+  font-family: sans-serif;
+  font-size: 0.9em;
+  color: #666;
+}
+
+.rate-limit-nudge {
+  font-family: sans-serif;
+  font-size: 0.9em;
+  color: #b00020;
+}

@@ -1,3 +1,6 @@
+import { getCachedRepo, setCachedRepo, isFresh } from './githubCache';
+import { recordRateLimit } from './githubRateLimit';
+
 const GITHUB_API = 'https://api.github.com';
 
 export class RepoTooLargeError extends Error {
@@ -65,8 +68,15 @@ export interface RawRepoFile {
   content: string;
 }
 
-async function githubFetch(path: string, token?: string): Promise<Response> {
-  const headers: Record<string, string> = { Accept: 'application/vnd.github+json' };
+async function githubFetch(
+  path: string,
+  token?: string,
+  extraHeaders?: Record<string, string>,
+): Promise<Response> {
+  const headers: Record<string, string> = {
+    Accept: 'application/vnd.github+json',
+    ...extraHeaders,
+  };
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
   let response: Response;
@@ -75,6 +85,16 @@ async function githubFetch(path: string, token?: string): Promise<Response> {
   } catch (cause) {
     throw new GitHubNetworkError(cause);
   }
+
+  // Captured unconditionally, including on error responses - a 403 with
+  // remaining=0 is exactly the "exhausted" case the rate-limit indicator
+  // needs to detect. See utils/githubRateLimit.ts.
+  await recordRateLimit(response.headers);
+
+  // A conditional request (If-None-Match) hitting a match - the cached tree
+  // is still current. Not an error; the caller (getTree) checks for this
+  // status itself rather than treating a non-ok response as a failure.
+  if (response.status === 304) return response;
 
   if (!response.ok) {
     if (response.status === 404) {
@@ -100,17 +120,34 @@ async function getDefaultBranch(owner: string, repo: string, token?: string): Pr
   return data.default_branch;
 }
 
+interface GitHubTreeResult extends GitHubTreeResponse {
+  etag: string | null;
+  // True when `etag` was sent as If-None-Match and GitHub confirmed the
+  // tree hasn't changed (304) - `tree` is empty and should be ignored in
+  // favor of the caller's already-cached files. See fetchRepoFiles below.
+  notModified: boolean;
+}
+
 async function getTree(
   owner: string,
   repo: string,
   branch: string,
   token?: string,
-): Promise<GitHubTreeResponse> {
+  etag?: string,
+): Promise<GitHubTreeResult> {
   const response = await githubFetch(
     `/repos/${owner}/${repo}/git/trees/${encodeURIComponent(branch)}?recursive=1`,
     token,
+    etag ? { 'If-None-Match': etag } : undefined,
   );
-  return (await response.json()) as GitHubTreeResponse;
+  const newEtag = response.headers.get('etag');
+
+  if (response.status === 304) {
+    return { tree: [], truncated: false, etag: newEtag ?? etag ?? null, notModified: true };
+  }
+
+  const data = (await response.json()) as GitHubTreeResponse;
+  return { ...data, etag: newEtag, notModified: false };
 }
 
 async function getBlobContents(
@@ -160,14 +197,40 @@ async function mapWithConcurrency<T, R>(
  * registered as the `github:fetch-repo` bridge handler in
  * entrypoints/background.ts, called by the hosted page over the message
  * bridge instead of the page calling GitHub directly.
+ *
+ * Caching (roadmap Phase 3, `feature/github-cache-layer`): a repo fetched
+ * within the last `CACHE_TTL_MS` is served straight from
+ * `chrome.storage.local` with no network call. Past that window, the tree
+ * is re-checked with a conditional (`If-None-Match`) request - a 304 means
+ * nothing changed (blob content is addressed by immutable SHA, so an
+ * unchanged tree guarantees unchanged files) and just renews the cache's
+ * TTL; a 200 means the repo actually changed, and every blob is re-fetched
+ * to replace the cached copy.
  */
 export async function fetchRepoFiles(
   owner: string,
   repo: string,
   token?: string,
 ): Promise<RawRepoFile[]> {
+  const cached = await getCachedRepo(owner, repo);
+  if (cached && isFresh(cached)) {
+    return cached.files;
+  }
+
   const branch = await getDefaultBranch(owner, repo, token);
-  const { tree, truncated } = await getTree(owner, repo, branch, token);
+  const { tree, truncated, etag, notModified } = await getTree(
+    owner,
+    repo,
+    branch,
+    token,
+    cached?.etag ?? undefined,
+  );
+
+  if (notModified && cached) {
+    await setCachedRepo(owner, repo, { ...cached, fetchedAt: Date.now() });
+    return cached.files;
+  }
+
   if (truncated) {
     throw new RepoTooLargeError(owner, repo);
   }
@@ -177,5 +240,7 @@ export async function fetchRepoFiles(
     getBlobContents(owner, repo, entry.sha, token),
   );
 
-  return blobEntries.map((entry, i) => ({ path: entry.path, content: contents[i] }));
+  const files = blobEntries.map((entry, i) => ({ path: entry.path, content: contents[i] }));
+  await setCachedRepo(owner, repo, { files, etag, fetchedAt: Date.now() });
+  return files;
 }

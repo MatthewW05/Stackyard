@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { fakeBrowser } from 'wxt/testing';
 import {
   fetchRepoFiles,
   RepoTooLargeError,
@@ -6,6 +7,7 @@ import {
   GitHubRateLimitError,
   GitHubNetworkError,
 } from './githubRepo';
+import { getCachedRepo, setCachedRepo, CACHE_TTL_MS } from './githubCache';
 
 function jsonResponse(body: unknown, status = 200, headers: Record<string, string> = {}): Response {
   const lower = Object.fromEntries(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v]));
@@ -25,6 +27,7 @@ describe('fetchRepoFiles', () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    fakeBrowser.reset();
     fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
   });
@@ -183,5 +186,86 @@ describe('fetchRepoFiles', () => {
 
     await expect(fetchRepoFiles('octocat', 'hello-world')).rejects.toThrow(GitHubNetworkError);
     await expect(fetchRepoFiles('octocat', 'hello-world')).rejects.toThrow(/Network error/);
+  });
+
+  describe('caching', () => {
+    it('serves a fresh (within-TTL) cache entry with no network call at all', async () => {
+      await setCachedRepo('octocat', 'cached-repo', {
+        files: [{ path: 'package.json', content: base64Of('{}') }],
+        etag: 'W/"old-etag"',
+        fetchedAt: Date.now(),
+      });
+
+      const files = await fetchRepoFiles('octocat', 'cached-repo');
+
+      expect(files).toEqual([{ path: 'package.json', content: base64Of('{}') }]);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('revalidates a stale cache entry and keeps the cached files on a 304', async () => {
+      await setCachedRepo('octocat', 'unchanged-repo', {
+        files: [{ path: 'package.json', content: base64Of('{}') }],
+        etag: 'W/"current-etag"',
+        fetchedAt: Date.now() - CACHE_TTL_MS - 1,
+      });
+
+      fetchMock.mockImplementation((url: string, init: RequestInit) => {
+        if (url === 'https://api.github.com/repos/octocat/unchanged-repo') {
+          return Promise.resolve(jsonResponse({ default_branch: 'main' }));
+        }
+        if (
+          url === 'https://api.github.com/repos/octocat/unchanged-repo/git/trees/main?recursive=1'
+        ) {
+          const headers = init.headers as Record<string, string>;
+          expect(headers['If-None-Match']).toBe('W/"current-etag"');
+          return Promise.resolve(jsonResponse({}, 304, { etag: 'W/"current-etag"' }));
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      });
+
+      const files = await fetchRepoFiles('octocat', 'unchanged-repo');
+
+      expect(files).toEqual([{ path: 'package.json', content: base64Of('{}') }]);
+
+      const cached = await getCachedRepo('octocat', 'unchanged-repo');
+      expect(cached?.fetchedAt).toBeGreaterThan(Date.now() - 1000);
+    });
+
+    it('replaces a stale cache entry when the tree actually changed (200)', async () => {
+      await setCachedRepo('octocat', 'changed-repo', {
+        files: [{ path: 'old.txt', content: base64Of('old') }],
+        etag: 'W/"old-etag"',
+        fetchedAt: Date.now() - CACHE_TTL_MS - 1,
+      });
+
+      fetchMock.mockImplementation((url: string) => {
+        if (url === 'https://api.github.com/repos/octocat/changed-repo') {
+          return Promise.resolve(jsonResponse({ default_branch: 'main' }));
+        }
+        if (
+          url === 'https://api.github.com/repos/octocat/changed-repo/git/trees/main?recursive=1'
+        ) {
+          return Promise.resolve(
+            jsonResponse(
+              { truncated: false, tree: [{ path: 'new.txt', type: 'blob', sha: 'new-sha' }] },
+              200,
+              { etag: 'W/"new-etag"' },
+            ),
+          );
+        }
+        if (url === 'https://api.github.com/repos/octocat/changed-repo/git/blobs/new-sha') {
+          return Promise.resolve(jsonResponse({ content: base64Of('new'), encoding: 'base64' }));
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      });
+
+      const files = await fetchRepoFiles('octocat', 'changed-repo');
+
+      expect(files).toEqual([{ path: 'new.txt', content: base64Of('new') }]);
+
+      const cached = await getCachedRepo('octocat', 'changed-repo');
+      expect(cached?.files).toEqual([{ path: 'new.txt', content: base64Of('new') }]);
+      expect(cached?.etag).toBe('W/"new-etag"');
+    });
   });
 });
