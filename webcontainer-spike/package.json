@@ -1,0 +1,17 @@
+{
+  "name": "webcontainer-spike-credentialless",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev:require-corp": "vite --mode require-corp --port 5271",
+    "dev:credentialless": "vite --mode credentialless --port 5272"
+  },
+  "dependencies": {
+    "@webcontainer/api": "^1.6.4"
+  },
+  "devDependencies": {
+    "playwright": "^1.62.1",
+    "vite": "^8.1.5"
+  }
+}
