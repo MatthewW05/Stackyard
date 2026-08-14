@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { getCachedRepo, setCachedRepo, isFresh, CACHE_TTL_MS, type CachedRepo } from './githubCache';
+import {
+  getCachedRepo,
+  setCachedRepo,
+  isFresh,
+  CACHE_TTL_MS,
+  type CachedRepo,
+} from './githubCache';
 
 describe('githubCache', () => {
   it('returns null for a repo that has never been cached', async () => {

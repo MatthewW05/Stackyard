@@ -21,11 +21,7 @@ export async function getCachedRepo(owner: string, repo: string): Promise<Cached
   return storage.getItem<CachedRepo>(cacheKey(owner, repo));
 }
 
-export async function setCachedRepo(
-  owner: string,
-  repo: string,
-  entry: CachedRepo,
-): Promise<void> {
+export async function setCachedRepo(owner: string, repo: string, entry: CachedRepo): Promise<void> {
   await storage.setItem(cacheKey(owner, repo), entry);
 }
 

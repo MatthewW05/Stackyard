@@ -73,7 +73,10 @@ async function githubFetch(
   token?: string,
   extraHeaders?: Record<string, string>,
 ): Promise<Response> {
-  const headers: Record<string, string> = { Accept: 'application/vnd.github+json', ...extraHeaders };
+  const headers: Record<string, string> = {
+    Accept: 'application/vnd.github+json',
+    ...extraHeaders,
+  };
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
   let response: Response;
