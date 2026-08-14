@@ -99,8 +99,6 @@ async function main(): Promise<void> {
         `Failed to boot WebContainer: ${error instanceof Error ? error.message : String(error)}`,
         'error',
       );
-    } finally {
-      refreshRateLimitDisplay();
     }
   }
 
@@ -128,6 +126,14 @@ async function main(): Promise<void> {
     } catch (error) {
       mountStatus.set(describeMountError(error), 'error');
       return;
+    } finally {
+      // Refreshed here, right after the only step that actually talks to
+      // GitHub - not after the whole of mountRepo. npm install and the dev
+      // server start below never touch GitHub, and startDevServer awaits
+      // the spawned process's exit, which doesn't happen for a live dev
+      // server under normal operation - a finally around the entire
+      // mountRepo call (as this used to be) would never fire in practice.
+      refreshRateLimitDisplay();
     }
 
     const decoder = new TextDecoder();
