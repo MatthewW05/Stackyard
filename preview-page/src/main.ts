@@ -75,7 +75,11 @@ async function main(): Promise<void> {
   let bootPromise: Promise<WebContainer> | null = null;
 
   function bootWebContainer(): Promise<WebContainer> {
-    if (!bootPromise) bootPromise = WebContainer.boot();
+    // WebContainer.boot() does not infer the COEP mode from this page's own
+    // header - it defaults to require-corp-style proxying unless told
+    // otherwise, and silently mismatching the two breaks external image
+    // loading. Must match vercel.json/vite.config.ts. See WEBCONTAINER_NOTES.md.
+    if (!bootPromise) bootPromise = WebContainer.boot({ coep: 'credentialless' });
     return bootPromise;
   }
 
