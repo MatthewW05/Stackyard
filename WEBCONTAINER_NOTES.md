@@ -106,6 +106,60 @@ Working theory: `main.ts`'s `startDevServer` reveals the iframe as soon as the `
 
 Not reproducible on demand - retried the same repo from a fresh `WebContainer.boot()` several times afterward and it loaded cleanly every time. Treating this as a known, rare race in Next.js App Router's lazy-compile behavior rather than chasing a fix blind. Revisit only if it starts reproducing reliably; if it does, the likely fix is delaying the iframe reveal past `server-ready` until some signal of first-compile completion, rather than anything about how this project mounts or detects the repo.
 
+## Follow-up from `spike/credentialless-testing`: Firefox supports COEP credentialless too, and both browsers benefit
+
+The "COEP `credentialless` vs `require-corp`" note above (originally from the
+Phase 0 spike) claims credentialless is Chromium-only and "Firefox has no
+timeline for it." That's now out of date - checked against MDN and
+caniuse.com (`mdn-http_headers_cross-origin-embedder-policy_credentialless`):
+**Firefox has supported `credentialless` unflagged on desktop since Firefox
+119** (shipped ~November 2023, confirmed via
+[mdn/content#29413](https://github.com/mdn/content/issues/29413)), well
+before this project started. Android Firefox is reportedly Nightly-only, but
+that's outside this project's desktop-only scope.
+
+This prompted a real spike (`spike/credentialless-testing`) to test whether
+Firefox actually benefits the way Chrome does, not just whether the header
+value is accepted. Test setup: a minimal page toggling COEP via Vite's
+`--mode` + `.env.<mode>` (avoids shell-specific env-var syntax), mounting a
+tiny app with two images - one from `avatars.githubusercontent.com` (sends
+`Cross-Origin-Resource-Policy: cross-origin`, so it's a control that should
+always load) and one from `placehold.co` (confirmed via `curl -I` to send no
+CORP header at all - the real-world case `require-corp` blocks and
+`credentialless` is supposed to unblock).
+
+**Key gotcha found along the way:** `WebContainer.boot()` does **not** infer
+the COEP mode from the page's own header. It defaults to `require-corp`-style
+proxying (visible in the proxy hostname: `*.local-corp.webcontainer-api.io`)
+unless told otherwise via `BootOptions.coep: 'require-corp' | 'credentialless'
+| 'none'`. Serving a page with `COEP: credentialless` but calling
+`WebContainer.boot()` with no options silently keeps require-corp-style
+proxying and the fix appears not to work at all. This also means
+`preview-page/src/main.ts`'s current `WebContainer.boot()` call (no options)
+has always been implicitly `require-corp` - this needs to be made explicit
+whichever way the real feature branch goes.
+
+**Results, confirmed in real (non-headless) browser windows:**
+
+| Browser | Mode | control (has CORP header) | test (no CORP header) |
+| --- | --- | --- | --- |
+| Chrome | require-corp | loaded | blocked (`ERR_BLOCKED_BY_RESPONSE.NotSameOriginAfterDefaultedToSameOriginByCoep`) |
+| Chrome | credentialless | loaded | loaded |
+| Firefox | require-corp | loaded | blocked (broken-image icon) |
+| Firefox | credentialless | loaded | loaded |
+
+Both browsers show the identical pattern. **Conclusion: credentialless is
+not Chrome-only for this project's purposes - both browsers benefit, and the
+fix should be applied for both rather than gated to Chrome.**
+
+Automation caveat for future spikes: Playwright's `frameLocator` against the
+deeply-nested WebContainer/StackBlitz proxy iframe was reliable in Chromium
+but consistently returned blank/unreadable content in Firefox regardless of
+COEP mode - including for `require-corp`, the mode already known to work in
+production. Manual verification in a real Firefox window was needed to get a
+trustworthy result; don't trust an automated Firefox iframe-content read
+here without a manual cross-check.
+
 ## Licensing — flag for later, not blocking now
 
 StackBlitz's docs state a commercial license is required for "production usage... in a commercial, for-profit setting," but prototypes/POCs are exempt, and the docs don't explicitly address free/open-source personal projects. Worth a direct confirmation with StackBlitz before Phase 3 publishing (same flag as in the main README's Credits section) — doesn't block this spike or the MVP build.
