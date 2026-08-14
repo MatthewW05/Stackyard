@@ -41,13 +41,21 @@ async function main(): Promise<void> {
     ? `Preview: ${params.owner}/${params.repo}`
     : "Missing owner/repo query params. Open this page via the Stackyard extension's Preview button.";
 
-  // Non-blocking: doesn't gate WebContainer boot/mount below it. See
-  // roadmap Phase 3, feature/github-cache-layer.
+  // Non-blocking: doesn't gate WebContainer boot/mount below it. Called
+  // again after the boot/mount attempt below, since that's what actually
+  // talks to GitHub and updates the real numbers - rendering only once here
+  // would show whatever was left over from a previous session instead of
+  // this load's own result. See roadmap Phase 3, feature/github-cache-layer.
   const rateLimitContainer = document.createElement('div');
   app.append(rateLimitContainer);
-  void fetchRateLimitStatus()
-    .then((status) => renderRateLimitStatus(rateLimitContainer, status))
-    .catch((error) => console.error('Failed to fetch GitHub rate limit status.', error));
+
+  function refreshRateLimitDisplay(): void {
+    void fetchRateLimitStatus()
+      .then((status) => renderRateLimitStatus(rateLimitContainer, status))
+      .catch((error) => console.error('Failed to fetch GitHub rate limit status.', error));
+  }
+
+  refreshRateLimitDisplay();
 
   const bootStatus = createStatusLine();
   app.append(bootStatus.el);
@@ -91,6 +99,8 @@ async function main(): Promise<void> {
         `Failed to boot WebContainer: ${error instanceof Error ? error.message : String(error)}`,
         'error',
       );
+    } finally {
+      refreshRateLimitDisplay();
     }
   }
 
