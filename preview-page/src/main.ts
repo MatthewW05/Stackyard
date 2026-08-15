@@ -134,12 +134,12 @@ async function main(): Promise<void> {
     let files: RepoFile[];
     try {
       files = await fetchRepoFiles(owner, repo);
-      mountStatus.set(`Mounting ${files.length} files...`, 'loading');
+      mountStatus.set(`Mounting ${files.length.toLocaleString()} files...`, 'loading');
 
       const tree = buildFileSystemTree(files);
       await instance.mount(tree);
 
-      mountStatus.set(`Mounted ${files.length} files.`, 'done');
+      mountStatus.set(`Mounted ${files.length.toLocaleString()} files.`, 'done');
     } catch (error) {
       mountStatus.set(describeMountError(error), 'error');
       return;
