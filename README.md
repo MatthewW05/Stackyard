@@ -59,8 +59,8 @@ npm run build:firefox   # Firefox (Manifest V2)
 
 Then load the unpacked build:
 
-- **Chrome:** go to `chrome://extensions`, enable Developer Mode, click "Load unpacked", and select `.output/chrome-mv3`.
-- **Firefox:** go to `about:debugging#/runtime/this-firefox`, click "Load Temporary Add-on", and select `.output/firefox-mv2/manifest.json`.
+- **Chrome:** go to `chrome://extensions`, enable Developer Mode, click "Load unpacked", and select `.output/chrome-mv3`. This install persists across restarts.
+- **Firefox:** go to `about:debugging#/runtime/this-firefox`, click "Load Temporary Add-on", and select `.output/firefox-mv2/manifest.json`. Regular release Firefox only allows unsigned extensions to be loaded _temporarily_ this way — it's removed on restart, and needs reloading each time, until this is published on addons.mozilla.org. For a persistent install now, Firefox Developer Edition or Nightly can disable signature enforcement (`xpinstall.signatures.required` in `about:config`) and install the same build permanently via `about:addons` → gear icon → "Install Add-on From File".
 
 ### Use it
 
