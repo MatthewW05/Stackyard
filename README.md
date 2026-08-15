@@ -11,7 +11,7 @@ Preview any public GitHub repo running live, right from its repo page — no clo
 
 ![Stackyard demo: clicking the Preview button on a GitHub repo page, then playing a live-running React app](./docs/demo.gif)
 
-Signed in through the extension (for the higher 5,000 requests/hour rate limit) — clicking **Preview** on a repo page, then a quick play-through of a small React app once the live dev server finishes booting.
+Signed in through the extension (for the higher 5,000 requests/hour rate limit) — clicking **Preview** on a repo page, then a quick play-through of a small React app once the live dev server finishes booting. Demo repo: [ConnerArdman/tetris-react](https://github.com/ConnerArdman/tetris-react).
 
 ## Table of Contents
 
@@ -118,13 +118,11 @@ Beyond that:
 - **The hosted preview page never talks to GitHub directly.** Every request — fetching a repo's files, checking the rate limit — is relayed through the extension: page → content script → background script → GitHub's REST API, and the result relayed back the same way. A visitor who reaches the hosted page without the extension installed can't pull real repo data through it at all.
 - **Signing in requests full `repo` scope** (GitHub's Device Flow doesn't offer a narrower read-only grant for private repos). The resulting token stays in local extension storage and is only ever sent to GitHub's own API.
 
-## Credits
-
-Live previews are powered by [WebContainers](https://webcontainers.io/) (StackBlitz). Credit and links will be expanded here.
-
 ## Development
 
-Built with [WXT](https://wxt.dev/) (React + TypeScript), targeting Chrome and Firefox.
+Built with [WXT](https://wxt.dev/) (React + TypeScript) for the extension, and [Vite](https://vitejs.dev/) + [`@webcontainer/api`](https://www.npmjs.com/package/@webcontainer/api) for the hosted preview page, targeting Chrome and Firefox.
+
+### Extension
 
 ```bash
 npm install
@@ -135,6 +133,7 @@ npm run dev:firefox   # Firefox, with HMR
 npm run build          # production build, Chrome
 npm run build:firefox  # production build, Firefox
 
+npm run test     # Vitest
 npm run lint     # ESLint
 npm run format   # Prettier (writes)
 npm run compile  # TypeScript check, no emit
@@ -144,3 +143,28 @@ Loading the unpacked build:
 
 - **Chrome:** `chrome://extensions` → enable Developer Mode → "Load unpacked" → select `.output/chrome-mv3`
 - **Firefox:** `about:debugging#/runtime/this-firefox` → "Load Temporary Add-on" → select `.output/firefox-mv2/manifest.json`
+
+### Hosted preview page
+
+Lives in [`preview-page/`](./preview-page) as its own Vite project, deployed separately to Vercel:
+
+```bash
+cd preview-page
+npm install
+
+npm run dev      # local dev server, with credentialless COOP/COEP headers
+npm run test     # Vitest
+npm run build    # production build
+```
+
+CI ([`.github/workflows/ci.yml`](./.github/workflows/ci.yml)) runs formatting, linting, type-checking, both extension builds, and the preview page's tests and build on every push/PR to `main`.
+
+## Credits
+
+Live previews are powered by [WebContainers](https://webcontainers.io/) — [StackBlitz](https://stackblitz.com/)'s in-browser Node.js runtime, which is what makes booting a real dev server without a backend server possible at all. See [Scope & Limitations](#scope--limitations) for a licensing note on production/commercial use.
+
+Built with [WXT](https://wxt.dev/), [React](https://react.dev/), and [Vite](https://vitejs.dev/).
+
+## License
+
+[MIT](./LICENSE) © Matthew Wong
