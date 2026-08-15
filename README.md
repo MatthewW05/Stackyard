@@ -69,11 +69,54 @@ Then load the unpacked build:
 3. A new tab opens Stackyard's hosted preview page, which boots a WebContainer, fetches the repo's files, installs dependencies, and runs its dev server — all in the browser, with no clone and no local install.
 4. Optional: open the extension popup and sign in with GitHub to raise the API rate limit from 60 to 5,000 requests/hour and preview private repos you have access to.
 
-## Extension detection
+## Scope & Limitations
 
-The hosted preview page only renders its working UI when it detects it was opened via the Stackyard extension: a content script sets a marker on the page at load, and the page waits briefly for it before falling back to an "install the extension" landing state.
+Stackyard runs real project code inside the browser via WebContainers — that's powerful, but it has real edges. This section is deliberately explicit about them.
 
-This is a UX nudge, not a hard security boundary — a visitor could still reach the page directly by other means. In practice it's backed up structurally too: the hosted page has no direct path to GitHub at all, since every request is relayed through the extension (see [How It Works](#how-it-works)).
+**Supported repos**
+
+- Node/JavaScript/TypeScript projects with a `package.json` and a detectable dev/start script — verified against Vite, Create React App, and Next.js (dev mode), plus Vue and Svelte projects.
+- Monorepos / multiple `package.json` files, using the same package-location logic as single-package repos.
+- Static sites with no `package.json` (plain HTML/CSS/JS) — served through a fallback static file server instead of failing.
+
+**Not supported, by design**
+
+- Non-Node backend stacks — Python (`requirements.txt`, `.py` files), Ruby (`Gemfile`), Java (`pom.xml`), and similar. WebContainers only runs Node.js, so these produce an immediate, specific "not supported" message rather than a silent failure or a hang.
+- AI-assisted configuration for repos that fail standard detection isn't built. A repo that fails detection today shows a plain failure message rather than an AI-suggested fix.
+
+**Browsers**
+
+- Chrome and Firefox on desktop are both fully supported, including WebContainers' `SharedArrayBuffer` / cross-origin-isolation requirements. Firefox needed real investigation to get right — see [`WEBCONTAINER_NOTES.md`](./WEBCONTAINER_NOTES.md) for the packaged-extension-page limitation this project hit and worked around.
+- Safari and mobile browsers are out of scope.
+- Firefox surfaces a handful of harmless console warnings from `@webcontainer/api`'s own bundled code and StackBlitz's hosted runtime (a `Feature Policy` warning and a rejected third-party cookie). They don't affect functionality — documented in [`WEBCONTAINER_NOTES.md`](./WEBCONTAINER_NOTES.md) rather than treated as a bug to fix.
+
+**GitHub API limits**
+
+- 60 requests/hour unauthenticated, 5,000/hour signed in. Large repos with many files can use up the unauthenticated limit quickly. The on-by-default cache (TTL + ETag revalidation) and signing in both help; the preview page surfaces remaining requests so it's never a surprise.
+
+**Extension detection is a UX nudge, not a hard security boundary**
+
+- The hosted preview page checks for a marker the extension's content script sets, and shows an "install the extension" landing state if it's missing. This steers stray visitors correctly; the hosted page also has no direct path to GitHub regardless, since every request is relayed through the extension — see [Privacy & Permissions](#privacy--permissions).
+
+**Licensing**
+
+- [WebContainers](https://webcontainers.io/) (StackBlitz) requires a commercial license for production use in a for-profit setting. Stackyard is a personal/portfolio project, not a commercial product — worth knowing before adapting this code for something that is.
+
+## Privacy & Permissions
+
+The extension requests three permissions; each one is scoped to a specific, necessary purpose:
+
+| Permission                               | Why                                                                                                                                                                                                                                                                                    |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `host_permissions: https://github.com/*` | Needed only for the OAuth Device Flow endpoints (`github.com/login/device/code`, `github.com/login/oauth/access_token`), which don't send CORS headers permissive enough for a plain fetch. Regular GitHub API reads (`api.github.com`) don't need this — GitHub allows those already. |
+| `storage`                                | Persists the signed-in GitHub token and the repo cache locally in the browser (`chrome.storage.local`). Never sent anywhere except directly to GitHub's own API.                                                                                                                       |
+| `alarms`                                 | Drives the OAuth Device Flow's poll loop from the background service worker — a plain `setTimeout` isn't reliable, since Manifest V3 can suspend the worker mid-wait.                                                                                                                  |
+
+Beyond that:
+
+- **No analytics, telemetry, or tracking** is added by this project. (The hosted preview page does embed StackBlitz's WebContainer runtime to actually run the container, which is third-party code outside this project's control — see the cookie note in [`WEBCONTAINER_NOTES.md`](./WEBCONTAINER_NOTES.md).)
+- **The hosted preview page never talks to GitHub directly.** Every request — fetching a repo's files, checking the rate limit — is relayed through the extension: page → content script → background script → GitHub's REST API, and the result relayed back the same way. A visitor who reaches the hosted page without the extension installed can't pull real repo data through it at all.
+- **Signing in requests full `repo` scope** (GitHub's Device Flow doesn't offer a narrower read-only grant for private repos). The resulting token stays in local extension storage and is only ever sent to GitHub's own API.
 
 ## Credits
 
