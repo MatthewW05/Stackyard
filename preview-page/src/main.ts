@@ -7,7 +7,8 @@ import { hasStaticEntry, STATIC_SERVER_SCRIPT } from './staticServer';
 import { detectUnsupportedTech } from './detectUnsupportedTech';
 import { createStatusLine } from './status';
 import { isExtensionMarkerPresent, waitForExtensionMarker } from './extensionGate';
-import { renderInstallPrompt } from './installPrompt';
+import { renderHomePage } from './homePage';
+import { createPreviewFrame } from './previewFrame';
 import { fetchRateLimitStatus, renderRateLimitStatus } from './rateLimit';
 import './style.css';
 
@@ -28,18 +29,29 @@ const app = document.querySelector<HTMLDivElement>('#app')!;
 
 async function main(): Promise<void> {
   const extensionDetected = await waitForExtensionMarker(isExtensionMarkerPresent);
-  if (!extensionDetected) {
-    renderInstallPrompt(app);
+  const params = getRepoParams(location.search);
+
+  // Both "extension not installed" and "extension installed but no
+  // owner/repo params" (i.e. the hosted URL was opened directly rather than
+  // via the extension's Preview button) render the same home page - only the
+  // CTA differs. See homePage.ts.
+  if (!extensionDetected || !params) {
+    renderHomePage(app, { extensionInstalled: extensionDetected });
     return;
   }
+  // Narrowing `params` above doesn't survive into the nested functions
+  // below (initWebContainer, mountRepo) that reference it via closure -
+  // pin it to a properly-typed const instead.
+  const repoParams: RepoParams = params;
+
+  const workspace = document.createElement('div');
+  workspace.className = 'workspace';
+  app.append(workspace);
 
   const repoStatus = document.createElement('p');
-  app.append(repoStatus);
-
-  const params = getRepoParams(location.search);
-  repoStatus.textContent = params
-    ? `Preview: ${params.owner}/${params.repo}`
-    : "Missing owner/repo query params. Open this page via the Stackyard extension's Preview button.";
+  repoStatus.className = 'repo-heading';
+  repoStatus.textContent = `Preview: ${repoParams.owner}/${repoParams.repo}`;
+  workspace.append(repoStatus);
 
   // Non-blocking: doesn't gate WebContainer boot/mount below it. Called
   // again after the boot/mount attempt below, since that's what actually
@@ -47,7 +59,7 @@ async function main(): Promise<void> {
   // would show whatever was left over from a previous session instead of
   // this load's own result. See roadmap Phase 3, feature/github-cache-layer.
   const rateLimitContainer = document.createElement('div');
-  app.append(rateLimitContainer);
+  workspace.append(rateLimitContainer);
 
   function refreshRateLimitDisplay(): void {
     void fetchRateLimitStatus()
@@ -58,16 +70,17 @@ async function main(): Promise<void> {
   refreshRateLimitDisplay();
 
   const bootStatus = createStatusLine();
-  app.append(bootStatus.el);
+  workspace.append(bootStatus.el);
 
   const mountStatus = createStatusLine();
-  app.append(mountStatus.el);
+  workspace.append(mountStatus.el);
 
   const installStatus = createStatusLine();
-  app.append(installStatus.el);
+  workspace.append(installStatus.el);
 
   const installOutput = document.createElement('pre');
-  app.append(installOutput);
+  installOutput.className = 'terminal-output';
+  workspace.append(installOutput);
 
   // WebContainer.boot() throws if called twice in the same page - cache the
   // promise so any future re-entry reuses the same instance instead of
@@ -97,7 +110,7 @@ async function main(): Promise<void> {
     try {
       const instance = await bootWebContainer();
       bootStatus.set('WebContainer ready.', 'done');
-      if (params) await mountRepo(instance, params);
+      await mountRepo(instance, repoParams);
     } catch (error) {
       bootStatus.set(
         `Failed to boot WebContainer: ${error instanceof Error ? error.message : String(error)}`,
@@ -121,12 +134,12 @@ async function main(): Promise<void> {
     let files: RepoFile[];
     try {
       files = await fetchRepoFiles(owner, repo);
-      mountStatus.set(`Mounting ${files.length} files...`, 'loading');
+      mountStatus.set(`Mounting ${files.length.toLocaleString()} files...`, 'loading');
 
       const tree = buildFileSystemTree(files);
       await instance.mount(tree);
 
-      mountStatus.set(`Mounted ${files.length} files.`, 'done');
+      mountStatus.set(`Mounted ${files.length.toLocaleString()} files.`, 'done');
     } catch (error) {
       mountStatus.set(describeMountError(error), 'error');
       return;
@@ -220,6 +233,7 @@ async function main(): Promise<void> {
       }
     }
     element.textContent = text;
+    element.scrollTop = element.scrollHeight;
   }
 
   async function runInstall(instance: WebContainer, cwd?: string): Promise<boolean> {
@@ -257,22 +271,21 @@ async function main(): Promise<void> {
     cwd?: string,
   ): Promise<void> {
     const devStatus = createStatusLine();
-    app.append(devStatus.el);
+    workspace.append(devStatus.el);
 
     const devOutput = document.createElement('pre');
-    app.append(devOutput);
+    devOutput.className = 'terminal-output';
+    workspace.append(devOutput);
 
-    const preview = document.createElement('iframe');
-    preview.style.cssText = 'display:none; width:100%; height:80vh; border:1px solid #ccc;';
-    app.append(preview);
+    const { wrapper: previewWrapper, show: showPreview } = createPreviewFrame();
+    workspace.append(previewWrapper);
 
     devStatus.set(`Starting npm run ${startScript}...`, 'loading');
 
     // Register server-ready before spawning so we never miss the event.
     instance.on('server-ready', (_port, url) => {
       devStatus.set('Server ready.', 'done');
-      preview.src = url;
-      preview.style.display = 'block';
+      showPreview(url);
     });
 
     try {
@@ -299,21 +312,20 @@ async function main(): Promise<void> {
 
   async function serveStatic(instance: WebContainer): Promise<void> {
     const staticStatus = createStatusLine();
-    app.append(staticStatus.el);
+    workspace.append(staticStatus.el);
 
     const staticOutput = document.createElement('pre');
-    app.append(staticOutput);
+    staticOutput.className = 'terminal-output';
+    workspace.append(staticOutput);
 
-    const preview = document.createElement('iframe');
-    preview.style.cssText = 'display:none; width:100%; height:80vh; border:1px solid #ccc;';
-    app.append(preview);
+    const { wrapper: previewWrapper, show: showPreview } = createPreviewFrame();
+    workspace.append(previewWrapper);
 
     staticStatus.set('Starting static file server...', 'loading');
 
     instance.on('server-ready', (_port, url) => {
       staticStatus.set('Server ready.', 'done');
-      preview.src = url;
-      preview.style.display = 'block';
+      showPreview(url);
     });
 
     try {

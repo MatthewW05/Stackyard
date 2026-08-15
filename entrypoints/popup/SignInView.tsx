@@ -106,7 +106,7 @@ function SignInView() {
       <p>Sign in to preview private repos and raise the API rate limit to 5,000/hr.</p>
 
       {status.phase === 'idle' && (
-        <button type="button" onClick={handleSignIn} disabled={starting}>
+        <button type="button" className="btn-primary" onClick={handleSignIn} disabled={starting}>
           {starting ? 'Starting...' : 'Sign in with GitHub'}
         </button>
       )}
@@ -130,7 +130,7 @@ function SignInView() {
       {status.phase === 'error' && (
         <>
           <p className="error-message">{status.message}</p>
-          <button type="button" onClick={handleSignIn} disabled={starting}>
+          <button type="button" className="btn-primary" onClick={handleSignIn} disabled={starting}>
             Try again
           </button>
         </>
