@@ -27,8 +27,20 @@ export default defineContentScript({
         button.type = 'button';
         button.className = 'btn-sm btn';
         button.setAttribute('aria-label', 'Open a live preview of this repository');
-        button.innerHTML =
-          '<svg class="octicon" viewBox="0 0 16 16" width="16" height="16" style="margin-right: 4px;"><path d="M4 2l10 6-10 6V2z"></path></svg>Preview';
+        // Built via DOM APIs rather than innerHTML - AMO's linter flags any
+        // innerHTML assignment, even a static one, as an "unsafe assignment"
+        // finding.
+        const svgNs = 'http://www.w3.org/2000/svg';
+        const icon = document.createElementNS(svgNs, 'svg');
+        icon.setAttribute('class', 'octicon');
+        icon.setAttribute('viewBox', '0 0 16 16');
+        icon.setAttribute('width', '16');
+        icon.setAttribute('height', '16');
+        icon.setAttribute('style', 'margin-right: 4px;');
+        const iconPath = document.createElementNS(svgNs, 'path');
+        iconPath.setAttribute('d', 'M4 2l10 6-10 6V2z');
+        icon.append(iconPath);
+        button.append(icon, document.createTextNode('Preview'));
         button.addEventListener('click', () => {
           const repo = parseGitHubRepo(location.href);
           if (!repo) return;
