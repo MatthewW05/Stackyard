@@ -122,6 +122,8 @@ Beyond that:
 
 Built with [WXT](https://wxt.dev/) (React + TypeScript) for the extension, and [Vite](https://vitejs.dev/) + [`@webcontainer/api`](https://www.npmjs.com/package/@webcontainer/api) for the hosted preview page, targeting Chrome and Firefox.
 
+**Build environment:** Node.js 22.x (npm bundled with it) on any OS — Windows, macOS, or Linux. CI ([`.github/workflows/ci.yml`](./.github/workflows/ci.yml)) builds on `ubuntu-latest` with Node 22.
+
 ### Extension
 
 ```bash

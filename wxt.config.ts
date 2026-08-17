@@ -37,4 +37,12 @@ export default defineConfig({
       },
     },
   },
+  zip: {
+    // preview-page/dist is a build artifact (gitignored via
+    // preview-page/.gitignore, which WXT's sources zip doesn't read) that
+    // can exist locally from running `npm run build` in preview-page/. AMO
+    // requires the sources ZIP contain no machine-generated files, so
+    // exclude it explicitly rather than relying on it being absent.
+    excludeSources: ['preview-page/dist/**'],
+  },
 });
