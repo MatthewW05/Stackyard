@@ -23,5 +23,18 @@ export default defineConfig({
     // drives the Device Flow poll loop from the background script instead of
     // an in-page timer - see utils/deviceFlowOrchestrator.ts.
     permissions: ['storage', 'alarms'],
+    // Required by AMO as of Nov 2025: disclose what user data the extension
+    // sends off-device. The only such data is the GitHub OAuth token, sent
+    // to GitHub's own API in Authorization headers - and only if the user
+    // opts into signing in (see entrypoints/popup/SignInView.tsx), so it's
+    // optional rather than required.
+    browser_specific_settings: {
+      gecko: {
+        data_collection_permissions: {
+          required: ['none'],
+          optional: ['authenticationInfo'],
+        },
+      },
+    },
   },
 });
